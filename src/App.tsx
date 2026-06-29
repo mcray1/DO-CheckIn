@@ -128,7 +128,7 @@ function StudentSearch({ onSelect }) {
         }}>
           {loading && <div style={{ padding: "14px 16px", color: "#64748b", fontSize: 14 }}>Searching...</div>}
           {results.map(s => (
-            <div key={s.id} onClick={() => { onSelect(s); setQuery(""); setResults([]); }}
+            <div key={s.student_id} onClick={() => { onSelect(s); setQuery(""); setResults([]); }}
               style={{
                 padding: "12px 16px", cursor: "pointer", borderBottom: "1px solid #0f172a",
                 display: "flex", alignItems: "center", justifyContent: "space-between",
