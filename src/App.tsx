@@ -62,7 +62,7 @@ async function sbInsertSlip(slip) {
 
 async function sbFetchSlips() {
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/admission_slips?order=created_at.desc&limit=200`,
+    `${SUPABASE_URL}/rest/v1/admission_slips?order=created_at.desc&limit=3000`,
     { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
   );
   if (!res.ok) throw new Error(await res.text());
