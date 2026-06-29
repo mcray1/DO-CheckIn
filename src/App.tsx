@@ -3,24 +3,27 @@ import { useState, useEffect, useRef } from "react";
 const SUPABASE_URL = "https://ghofeoxrkrcibzeqcbih.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdob2Zlb3hya3JjaWJ6ZXFjYmloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTI4MTIsImV4cCI6MjA5ODIyODgxMn0.RsFkrqiuv4CzXGRg2FP33nTj5dMUtD2aF8w5NQYtmKQ";
 
-// Beadle Companion light theme palette
 const C = {
-  primary: "#1e40af",
-  primaryLight: "#3b82f6",
-  primaryBg: "#dbeafe",
-  bg: "#f1f5f9",
-  card: "#ffffff",
-  text: "#1e293b",
-  textMuted: "#64748b",
-  textLight: "#94a3b8",
-  border: "#e2e8f0",
-  success: "#10b981",
-  warning: "#f59e0b",
-  danger: "#ef4444",
+  primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
+  bg: "#f1f5f9", card: "#ffffff", text: "#1e293b",
+  textMuted: "#64748b", textLight: "#94a3b8", border: "#e2e8f0",
+  success: "#10b981", warning: "#f59e0b", danger: "#ef4444",
 };
 
 const NATURE_OPTIONS = ["Late","Uniform","Hairstyle","Gadget","Absent","POST","Suspension","Others"];
 const STATUS_OPTIONS = ["Excused","Unexcused","Admit Temporarily"];
+
+// Common late reasons with quick-select chips
+const LATE_REASONS = [
+  { label: "Traffic / Heavy traffic", icon: "🚗" },
+  { label: "Public transport delay", icon: "🚌" },
+  { label: "Overslept", icon: "😴" },
+  { label: "Medical appointment", icon: "🏥" },
+  { label: "Family emergency", icon: "🏠" },
+  { label: "Heavy rain / Flooding", icon: "🌧️" },
+  { label: "Vehicle breakdown", icon: "🔧" },
+  { label: "Power outage at home", icon: "⚡" },
+];
 
 function getToday() {
   return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -37,6 +40,36 @@ function Clock() {
   return <span>{time}</span>;
 }
 
+// AI classification using Claude
+async function classifyReason(reason, nature) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 200,
+      messages: [{
+        role: "user",
+        content: `You are a school discipline officer at Ateneo de Iloilo. A student has reported to the Discipline Office with the following:
+Nature of violation: ${nature.join(", ")}
+Student's reason/explanation: "${reason}"
+
+Based on school discipline standards, classify this as ONE of:
+- Excused: Valid reason beyond student's control (medical, emergency, natural disaster, documented transport issues)
+- Unexcused: Reason within student's control or preventable (overslept, forgot, personal preference)
+- Admit Temporarily: Needs further verification or documentation before final decision
+
+Respond ONLY with valid JSON, no markdown, no backticks:
+{"status":"Excused"|"Unexcused"|"Admit Temporarily","confidence":"high"|"medium","explanation":"one sentence why"}`
+      }]
+    })
+  });
+  if (!res.ok) throw new Error("AI unavailable");
+  const data = await res.json();
+  const text = data.content[0].text.trim();
+  return JSON.parse(text);
+}
+
 async function searchStudents(query) {
   if (!query || query.trim().length < 2) return [];
   const q = encodeURIComponent(query.trim());
@@ -47,8 +80,7 @@ async function searchStudents(query) {
   if (!res.ok) return [];
   const all = await res.json();
   return all.slice(0, 8).map(r => ({
-    name: r.name,
-    student_id: r.student_no,
+    name: r.name, student_id: r.student_no,
     grade_section: [r.level, r.section].filter(Boolean).join(" - "),
     rfid: r.rfid || "",
   }));
@@ -129,6 +161,9 @@ function StudentSearch({ onSelect }) {
 }
 
 function SlipPreview({ slip, onDone }) {
+  const statusColors = {
+    Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning
+  };
   return (
     <div style={{ background: C.card, borderRadius: 12, padding: "32px 36px", width: "100%", maxWidth: 480, boxShadow: "0 10px 30px rgba(15,23,42,0.1)", color: C.text, border: `1px solid ${C.border}` }}>
       <div style={{ textAlign: "center", marginBottom: 20, borderBottom: `2px solid ${C.primary}`, paddingBottom: 16 }}>
@@ -136,14 +171,12 @@ function SlipPreview({ slip, onDone }) {
         <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>DISCIPLINE OFFICE</div>
         <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 2, color: C.primary }}>ADMISSION SLIP</div>
       </div>
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 16 }}>
         <Field label="Name" value={slip.name} span={true} />
         <Field label="Date" value={slip.date} />
         <Field label="Time Arrived" value={slip.time_arrived} />
         <Field label="Gr. & Sec." value={slip.grade_section} span={true} />
       </div>
-
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6, color: C.textMuted }}>NATURE:</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -152,36 +185,39 @@ function SlipPreview({ slip, onDone }) {
           ))}
         </div>
       </div>
-
       {slip.nature.includes("Late") && (
         <div style={{ marginBottom: 14 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.textMuted }}>IF LATE: </span>
           <span style={{ fontSize: 13, fontWeight: 700, marginLeft: 8 }}>{slip.meridiem}</span>
         </div>
       )}
-
       {slip.reason && (
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: C.textMuted }}>REASON:</div>
           <div style={{ fontSize: 13, fontStyle: "italic", color: C.text, lineHeight: 1.5, background: C.bg, borderRadius: 6, padding: "10px 12px" }}>"{slip.reason}"</div>
         </div>
       )}
-
+      {/* AI Suggested Status */}
+      {slip.ai_status && (
+        <div style={{ marginBottom: 14, background: `${statusColors[slip.ai_status]}15`, border: `1px solid ${statusColors[slip.ai_status]}`, borderRadius: 8, padding: "10px 14px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: statusColors[slip.ai_status], marginBottom: 4 }}>🤖 AI SUGGESTED STATUS</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: statusColors[slip.ai_status] }}>{slip.ai_status}</div>
+          {slip.ai_explanation && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{slip.ai_explanation}</div>}
+        </div>
+      )}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6, color: C.textMuted }}>STATUS:</div>
+        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6, color: C.textMuted }}>FINAL STATUS:</div>
         <div style={{ display: "flex", gap: 8 }}>
           {STATUS_OPTIONS.map(s => (
             <span key={s} style={{ borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 700, background: slip.status === s ? C.primary : C.bg, color: slip.status === s ? "#fff" : C.textLight, border: `1px solid ${slip.status === s ? C.primary : C.border}` }}>{s}</span>
           ))}
         </div>
-        {!slip.status && <div style={{ fontSize: 12, color: C.warning, marginTop: 6, fontWeight: 600 }}>⏳ Pending — POD officer will set status</div>}
+        {!slip.status && <div style={{ fontSize: 12, color: C.warning, marginTop: 6, fontWeight: 600 }}>⏳ Pending — POD officer will confirm status</div>}
       </div>
-
       <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16, marginBottom: 16, fontSize: 11, color: C.textLight, textAlign: "center" }}>
         Signed: ________________________<br />
         <span style={{ fontWeight: 700 }}>Prefect of Discipline / Discipline Officer</span>
       </div>
-
       <button onClick={onDone} style={{ width: "100%", background: C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>Next Student</button>
     </div>
   );
@@ -213,6 +249,11 @@ export default function App() {
   const [filterNature, setFilterNature] = useState("All");
   const [updatingId, setUpdatingId] = useState(null);
 
+  // AI state
+  const [aiResult, setAiResult] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiDebounce = useRef(null);
+
   useEffect(() => {
     if (view === "log") {
       setLoadingLog(true);
@@ -220,9 +261,30 @@ export default function App() {
     }
   }, [view]);
 
+  // Auto-classify when reason changes and Late is selected
+  useEffect(() => {
+    if (!reason.trim() || reason.trim().length < 15 || nature.length === 0) {
+      setAiResult(null);
+      return;
+    }
+    clearTimeout(aiDebounce.current);
+    aiDebounce.current = setTimeout(async () => {
+      setAiLoading(true);
+      try {
+        const result = await classifyReason(reason, nature);
+        setAiResult(result);
+      } catch {
+        setAiResult(null);
+      } finally {
+        setAiLoading(false);
+      }
+    }, 1200);
+  }, [reason, nature]);
+
   function resetForm() {
     setStep("search"); setSelectedStudent(null); setNature([]); setOthersText("");
     setReason(""); setMeridiem(getMeridiem()); setErrors({}); setSubmitError("");
+    setAiResult(null); setAiLoading(false);
   }
   function toggleNature(n) {
     setNature(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]);
@@ -245,7 +307,10 @@ export default function App() {
       nature: nature.map(n => n === "Others" ? `Others: ${othersText}` : n),
       reason: reason.trim(),
       meridiem: nature.includes("Late") ? meridiem : null,
-      time_arrived: getTime(), date: getToday(), status: null,
+      time_arrived: getTime(), date: getToday(),
+      status: aiResult?.status || null,
+      ai_status: aiResult?.status || null,
+      ai_explanation: aiResult?.explanation || null,
     };
     try {
       const [saved] = await sbInsertSlip(slip);
@@ -264,13 +329,15 @@ export default function App() {
   }
 
   const todayStr = getToday();
+  const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
+
   const s = {
     root: { minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", display: "flex", flexDirection: "column", color: C.text },
     header: { background: C.card, borderBottom: `2px solid ${C.primary}`, padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
     badge: { background: C.primary, color: "#fff", fontWeight: 800, fontSize: 13, padding: "3px 10px", borderRadius: 4, letterSpacing: 1, textTransform: "uppercase" },
     navBtn: (active) => ({ background: active ? C.primary : "transparent", color: active ? "#fff" : C.textMuted, border: `1px solid ${active ? C.primary : C.border}`, borderRadius: 6, padding: "6px 16px", fontWeight: 600, fontSize: 13, cursor: "pointer" }),
     main: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 16px" },
-    card: { background: C.card, borderRadius: 16, padding: "36px 40px", width: "100%", maxWidth: 560, boxShadow: "0 10px 40px rgba(15,23,42,0.08)", border: `1px solid ${C.border}` },
+    card: { background: C.card, borderRadius: 16, padding: "36px 40px", width: "100%", maxWidth: 580, boxShadow: "0 10px 40px rgba(15,23,42,0.08)", border: `1px solid ${C.border}` },
     label: { fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: C.textMuted, textTransform: "uppercase", marginBottom: 8, display: "block" },
     errMsg: { fontSize: 12, color: C.danger, marginTop: 5 },
     natureBtn: (active) => ({ padding: "10px 14px", border: `2px solid ${active ? C.primary : C.border}`, background: active ? C.primaryBg : C.card, color: active ? C.primary : C.textMuted, borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "center" }),
@@ -289,7 +356,7 @@ export default function App() {
           <span style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Admission Slip — Discipline Office</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, color: C.textMuted }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.success, background: "rgba(16,185,129,0.1)", border: `1px solid rgba(16,185,129,0.3)`, borderRadius: 20, padding: "3px 10px" }}>🟢 Supabase</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.success, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 20, padding: "3px 10px" }}>🟢 Supabase</span>
           <span>📅 {getToday()}</span>
           <span>🕐 <Clock /></span>
           <button style={s.navBtn(view === "checkin" || view === "slip")} onClick={() => { setView("checkin"); resetForm(); }}>New Slip</button>
@@ -308,6 +375,7 @@ export default function App() {
 
         {view === "checkin" && step === "form" && (
           <div style={s.card}>
+            {/* Student bar */}
             <div style={{ background: C.primaryBg, border: `1px solid ${C.primary}`, borderRadius: 10, padding: "12px 16px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{selectedStudent?.name}</div>
@@ -316,6 +384,7 @@ export default function App() {
               <button onClick={() => setStep("search")} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
             </div>
 
+            {/* Nature */}
             <div style={{ marginBottom: 20 }}>
               <label style={s.label}>Nature of Violation</label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
@@ -331,6 +400,7 @@ export default function App() {
               {errors.others && <div style={s.errMsg}>{errors.others}</div>}
             </div>
 
+            {/* If late: AM/PM */}
             {nature.includes("Late") && (
               <div style={{ marginBottom: 20 }}>
                 <label style={s.label}>If Late</label>
@@ -345,14 +415,54 @@ export default function App() {
               </div>
             )}
 
+            {/* Reason with quick-select */}
             <div style={{ marginBottom: 24 }}>
               <label style={s.label}>Student's Reason / Explanation</label>
-              <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Student explains the reason for this violation..." rows={4}
+
+              {/* Quick-select chips — shown when Late is selected */}
+              {nature.includes("Late") && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, fontWeight: 600 }}>QUICK SELECT:</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {LATE_REASONS.map(r => (
+                      <button key={r.label} onClick={() => setReason(r.label)}
+                        style={{ background: reason === r.label ? C.primaryBg : C.bg, border: `1px solid ${reason === r.label ? C.primary : C.border}`, color: reason === r.label ? C.primary : C.textMuted, borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                        {r.icon} {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <textarea value={reason} onChange={e => setReason(e.target.value)}
+                placeholder={nature.includes("Late") ? "Or type a custom reason here..." : "Student explains the reason for this violation..."}
+                rows={3}
                 style={{ width: "100%", background: C.card, border: `1.5px solid ${reason.trim().length >= 10 ? C.primary : C.border}`, borderRadius: 8, padding: "12px 14px", fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box", resize: "none", lineHeight: 1.6, fontFamily: "inherit" }} />
               <div style={{ fontSize: 12, marginTop: 4, textAlign: "right", color: reason.trim().length >= 10 ? C.success : C.textLight }}>
                 {reason.trim().length < 10 ? `${10 - reason.trim().length} more characters needed` : "✓ Good"}
               </div>
               {errors.reason && <div style={s.errMsg}>{errors.reason}</div>}
+
+              {/* AI Classification Result */}
+              {aiLoading && (
+                <div style={{ marginTop: 10, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.textMuted }}>
+                  <span style={{ fontSize: 16 }}>🤖</span> Analyzing reason...
+                </div>
+              )}
+              {!aiLoading && aiResult && (
+                <div style={{ marginTop: 10, background: `${statusColors[aiResult.status]}10`, border: `1.5px solid ${statusColors[aiResult.status]}`, borderRadius: 8, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 14 }}>🤖</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>AI Suggested Status</span>
+                    {aiResult.confidence === "high"
+                      ? <span style={{ fontSize: 10, background: C.success, color: "#fff", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>High confidence</span>
+                      : <span style={{ fontSize: 10, background: C.warning, color: "#fff", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>Review needed</span>
+                    }
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: statusColors[aiResult.status] }}>{aiResult.status}</div>
+                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 3 }}>{aiResult.explanation}</div>
+                </div>
+              )}
             </div>
 
             {submitError && (
@@ -375,11 +485,11 @@ export default function App() {
         )}
 
         {view === "log" && (
-          <div style={{ background: C.card, borderRadius: 16, padding: "28px 32px", width: "100%", maxWidth: 1000, boxShadow: "0 10px 40px rgba(15,23,42,0.08)", border: `1px solid ${C.border}` }}>
+          <div style={{ background: C.card, borderRadius: 16, padding: "28px 32px", width: "100%", maxWidth: 1050, boxShadow: "0 10px 40px rgba(15,23,42,0.08)", border: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: C.text }}>Admission Slip Log</div>
-                <div style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>POD officers can set status here</div>
+                <div style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>POD officers can confirm or override AI-suggested status here</div>
               </div>
               <button onClick={() => { setLoadingLog(true); sbFetchSlips().then(setLog).catch(() => {}).finally(() => setLoadingLog(false)); }}
                 style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>🔄 Refresh</button>
@@ -414,7 +524,7 @@ export default function App() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: C.bg }}>
-                      {["Time", "Date", "Name", "ID", "Gr. & Sec.", "Nature", "Reason", "Status", "Set Status"].map(h => (
+                      {["Time", "Date", "Name", "ID", "Gr. & Sec.", "Nature", "Reason", "AI Status", "Final Status", "Set Status"].map(h => (
                         <th key={h} style={{ textAlign: "left", padding: "10px 12px", fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
@@ -434,7 +544,12 @@ export default function App() {
                             ))}
                           </div>
                         </td>
-                        <td style={{ padding: "12px", color: C.textMuted, fontStyle: "italic", maxWidth: 180 }}>{e.reason || "—"}</td>
+                        <td style={{ padding: "12px", color: C.textMuted, fontStyle: "italic", maxWidth: 160 }}>{e.reason || "—"}</td>
+                        <td style={{ padding: "12px" }}>
+                          {e.ai_status
+                            ? <span style={{ ...s.statusPill(e.ai_status), display: "inline-flex", alignItems: "center", gap: 4 }}>🤖 {e.ai_status}</span>
+                            : <span style={{ fontSize: 11, color: C.textLight }}>—</span>}
+                        </td>
                         <td style={{ padding: "12px" }}>
                           {e.status ? <span style={s.statusPill(e.status)}>{e.status}</span> : <span style={{ fontSize: 11, color: C.textLight }}>Pending</span>}
                         </td>
