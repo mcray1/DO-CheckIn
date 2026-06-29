@@ -12,15 +12,15 @@ export default function App() {
     setStatus("Searching...");
     setResults([]);
     try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/students?select=NAME,STUDENT%20NO.&limit=3000`,
-        {
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-        }
-      );
+      // Use aliases to rename problematic columns
+      const selectParam = 'name:NAME,student_no:"STUDENT NO.",level:LEVEL,section:SECTION,rfid:RFID';
+      const url = `${SUPABASE_URL}/rest/v1/students?select=${encodeURIComponent(selectParam)}&limit=3000`;
+      const res = await fetch(url, {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      });
       setStatus(`HTTP ${res.status}`);
       if (!res.ok) {
         const text = await res.text();
@@ -31,8 +31,8 @@ export default function App() {
       const q = query.toLowerCase();
       const filtered = data.filter(
         (r) =>
-          (r["NAME"] || "").toLowerCase().includes(q) ||
-          (r["STUDENT NO."] || "").toLowerCase().includes(q)
+          (r.name || "").toLowerCase().includes(q) ||
+          (r.student_no || "").toLowerCase().includes(q)
       );
       setStatus(`Loaded ${data.length} students. Found ${filtered.length} matches.`);
       setResults(filtered.slice(0, 10));
@@ -59,7 +59,7 @@ export default function App() {
       <ul style={{ marginTop: 20 }}>
         {results.map((r, i) => (
           <li key={i}>
-            {r["NAME"]} — {r["STUDENT NO."]}
+            {r.name} — {r.student_no} ({r.level} - {r.section})
           </li>
         ))}
       </ul>
