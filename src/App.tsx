@@ -25,14 +25,17 @@ function Clock() {
 async function searchStudents(query) {
   if (!query || query.trim().length < 2) return [];
   const q = query.trim().toLowerCase();
-  // Use RPC via PostgREST to handle tricky column names safely
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/students?select=NAME,STUDENT%20NO.,LEVEL,SECTION,RFID&limit=200`,
-    { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    `${SUPABASE_URL}/rest/v1/students?select=NAME,STUDENT%20NO.,LEVEL,SECTION,RFID&limit=3000`,
+    {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+    }
   );
   if (!res.ok) return [];
   const all = await res.json();
-  // Filter client-side to avoid URL encoding issues with special column names
   const filtered = all.filter(r =>
     (r["NAME"] || "").toLowerCase().includes(q) ||
     (r["STUDENT NO."] || "").toLowerCase().includes(q)
