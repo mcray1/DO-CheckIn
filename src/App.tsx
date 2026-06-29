@@ -23,18 +23,14 @@ function Clock() {
 
 async function searchStudents(query) {
   if (!query || query.trim().length < 2) return [];
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/students?select=name,student_no,level,section,rfid&limit=3000`,
+    `${SUPABASE_URL}/rest/v1/students?or=(name.ilike.*${encodeURIComponent(q)}*,student_no.ilike.*${encodeURIComponent(q)}*)&select=name,student_no,level,section,rfid&limit=20`,
     { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
   );
   if (!res.ok) return [];
   const all = await res.json();
-  const filtered = all.filter(r =>
-    (r.name || "").toLowerCase().includes(q) ||
-    (r.student_no || "").toLowerCase().includes(q)
-  );
-  return filtered.slice(0, 8).map(r => ({
+  return all.slice(0, 8).map(r => ({
     name: r.name,
     student_id: r.student_no,
     grade_section: [r.level, r.section].filter(Boolean).join(" - "),
