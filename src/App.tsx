@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import Login from "./Login";
+import Dashboard from "./Dashboard";
 
 const sbHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
@@ -429,38 +430,6 @@ function Kiosk({ onStaffLogin }) {
         )}
 
         {step === "slip" && lastSlip && <SlipPreview slip={lastSlip} onDone={resetForm} />}
-      </div>
-    </div>
-  );
-}
-
-// ── Placeholder Dashboard (full version in Step 4) ────────────────
-function Dashboard({ profile, onSignOut }) {
-  return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", color: C.text }}>
-      <div style={{ background: C.card, borderBottom: `2px solid ${C.primary}`, padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ background: C.primary, color: "#fff", fontWeight: 800, fontSize: 13, padding: "3px 10px", borderRadius: 4, letterSpacing: 1 }}>POD</span>
-          <span style={{ fontSize: 18, fontWeight: 700 }}>POD Dashboard</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{profile?.full_name || profile?.email}</div>
-            <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{profile?.role}</div>
-          </div>
-          <button onClick={onSignOut} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 14px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Sign Out</button>
-        </div>
-      </div>
-      <div style={{ maxWidth: 700, margin: "60px auto", padding: "0 20px", textAlign: "center" }}>
-        <div style={{ background: C.card, borderRadius: 16, padding: "48px 40px", border: `1px solid ${C.border}`, boxShadow: "0 10px 40px rgba(15,23,42,0.08)" }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-          <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>You're logged in!</div>
-          <div style={{ fontSize: 15, color: C.textMuted, marginBottom: 8 }}>Welcome, {profile?.full_name || profile?.email}.</div>
-          <div style={{ fontSize: 14, color: C.textLight }}>Your role: <strong style={{ color: C.primary }}>{profile?.role}</strong></div>
-          <div style={{ marginTop: 24, padding: "16px", background: C.primaryBg, borderRadius: 10, fontSize: 14, color: C.text }}>
-            The full slip log and confirmation view will appear here in the next step (Phase 2, Step 4).
-          </div>
-        </div>
       </div>
     </div>
   );
