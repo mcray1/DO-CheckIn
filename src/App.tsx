@@ -69,13 +69,16 @@ async function searchTeachers(query) {
   }));
 }
 async function sbInsertSlip(slip) {
+  // return=minimal: the kiosk runs as the anon role, which has an INSERT
+  // policy but no SELECT policy. Asking PostgREST to return the inserted
+  // row (return=representation) forces a SELECT-policy re-check that anon
+  // fails, surfacing as "new row violates row-level security policy".
   const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips`, {
     method: "POST",
-    headers: { ...sbHeaders, "Content-Type": "application/json", Prefer: "return=representation" },
+    headers: { ...sbHeaders, "Content-Type": "application/json", Prefer: "return=minimal" },
     body: JSON.stringify(slip),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json();
 }
 
 function classifyReason(reason, categoryName, keywords, subCategories) {
