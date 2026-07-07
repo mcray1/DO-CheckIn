@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 const SUPABASE_URL = "https://ghofeoxrkrcibzeqcbih.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdob2Zlb3hya3JjaWJ6ZXFjYmloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTI4MTIsImV4cCI6MjA5ODIyODgxMn0.RsFkrqiuv4CzXGRg2FP33nTj5dMUtD2aF8w5NQYtmKQ";
 
+const sbHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
+
 const C = {
   primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
   bg: "#f1f5f9", card: "#ffffff", text: "#1e293b",
@@ -10,20 +12,7 @@ const C = {
   success: "#10b981", warning: "#f59e0b", danger: "#ef4444",
 };
 
-const NATURE_OPTIONS = ["Late","Uniform","Hairstyle","Gadget","Absent","POST","Suspension","Others"];
-const STATUS_OPTIONS = ["Excused","Unexcused","Admit Temporarily"];
-
-// Common late reasons with quick-select chips
-const LATE_REASONS = [
-  { label: "Traffic / Heavy traffic", icon: "🚗" },
-  { label: "Public transport delay", icon: "🚌" },
-  { label: "Overslept", icon: "😴" },
-  { label: "Medical appointment", icon: "🏥" },
-  { label: "Family emergency", icon: "🏠" },
-  { label: "Heavy rain / Flooding", icon: "🌧️" },
-  { label: "Vehicle breakdown", icon: "🔧" },
-  { label: "Power outage at home", icon: "⚡" },
-];
+const STATUS_OPTIONS = ["Excused", "Unexcused", "Admit Temporarily"];
 
 function getToday() {
   return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -40,80 +29,100 @@ function Clock() {
   return <span>{time}</span>;
 }
 
-// AI classification using Claude
-async function classifyReason(reason, nature) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 200,
-      messages: [{
-        role: "user",
-        content: `You are a school discipline officer at Ateneo de Iloilo. A student has reported to the Discipline Office with the following:
-Nature of violation: ${nature.join(", ")}
-Student's reason/explanation: "${reason}"
+// ── Data fetching ─────────────────────────────────────────────────
+async function fetchCategories() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/categories?is_active=eq.true&order=sort_order&select=id,name,description,requires_reason,requires_teacher`, { headers: sbHeaders });
+  if (!res.ok) return [];
+  return res.json();
+}
 
-Based on school discipline standards, classify this as ONE of:
-- Excused: Valid reason beyond student's control (medical, emergency, natural disaster, documented transport issues)
-- Unexcused: Reason within student's control or preventable (overslept, forgot, personal preference)
-- Admit Temporarily: Needs further verification or documentation before final decision
+async function fetchKeywords() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/keywords?is_active=eq.true&select=nature,keyword,suggested_status,weight,sub_category_id`, { headers: sbHeaders });
+  if (!res.ok) return [];
+  return res.json();
+}
 
-Respond ONLY with valid JSON, no markdown, no backticks:
-{"status":"Excused"|"Unexcused"|"Admit Temporarily","confidence":"high"|"medium","explanation":"one sentence why"}`
-      }]
-    })
-  });
-  if (!res.ok) throw new Error("AI unavailable");
-  const data = await res.json();
-  const text = data.content[0].text.trim();
-  return JSON.parse(text);
+async function fetchSubCategories() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/sub_categories?is_active=eq.true&select=id,name,category_id,suggested_status,document_required,document_description,document_deadline_days`, { headers: sbHeaders });
+  if (!res.ok) return [];
+  return res.json();
 }
 
 async function searchStudents(query) {
   if (!query || query.trim().length < 2) return [];
   const q = encodeURIComponent(query.trim());
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/students?or=(name.ilike.*${q}*,student_no.ilike.*${q}*)&select=name,student_no,level,section,rfid&limit=20`,
-    { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
-  );
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/students?or=(name.ilike.*${q}*,student_no.ilike.*${q}*)&select=name,student_no,level,section&limit=20`, { headers: sbHeaders });
   if (!res.ok) return [];
   const all = await res.json();
   return all.slice(0, 8).map(r => ({
     name: r.name, student_id: r.student_no,
     grade_section: [r.level, r.section].filter(Boolean).join(" - "),
-    rfid: r.rfid || "",
+  }));
+}
+
+async function searchTeachers(query) {
+  if (!query || query.trim().length < 2) return [];
+  const q = encodeURIComponent(query.trim());
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?is_active=eq.true&or=(first_name.ilike.*${q}*,last_name.ilike.*${q}*)&select=id,first_name,last_name,middle_name,email&limit=20`, { headers: sbHeaders });
+  if (!res.ok) return [];
+  const all = await res.json();
+  return all.slice(0, 8).map(t => ({
+    id: t.id,
+    full_name: `${t.last_name}, ${t.first_name}${t.middle_name ? " " + t.middle_name : ""}`,
+    email: t.email || "",
   }));
 }
 
 async function sbInsertSlip(slip) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, Prefer: "return=representation" },
+    headers: { ...sbHeaders, "Content-Type": "application/json", Prefer: "return=representation" },
     body: JSON.stringify(slip),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-async function sbFetchSlips() {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?order=created_at.desc&limit=3000`,
-    { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+// ── Rules-based classifier (keywords from DB) ─────────────────────
+function classifyReason(reason, categoryName, keywords, subCategories) {
+  const r = reason.toLowerCase();
+  const relevantKw = keywords.filter(k => k.nature === categoryName || k.nature === "Any");
+
+  const scores = {}; // sub_category_id -> { score, status }
+  for (const k of relevantKw) {
+    if (r.includes(k.keyword.toLowerCase())) {
+      if (!scores[k.sub_category_id]) scores[k.sub_category_id] = { score: 0, statusVotes: {} };
+      scores[k.sub_category_id].score += k.weight;
+      const st = k.suggested_status;
+      scores[k.sub_category_id].statusVotes[st] = (scores[k.sub_category_id].statusVotes[st] || 0) + k.weight;
+    }
+  }
+
+  const entries = Object.entries(scores);
+  if (entries.length === 0) {
+    return { sub_category: null, status: "Admit Temporarily", confidence: "medium",
+      explanation: "No matching keywords. POD officer review needed." };
+  }
+
+  entries.sort((a, b) => b[1].score - a[1].score);
+  const [bestId, bestData] = entries[0];
+  const sub = subCategories.find(s => String(s.id) === String(bestId));
+  const topStatus = Object.entries(bestData.statusVotes).sort((a, b) => b[1] - a[1])[0][0];
+
+  return {
+    sub_category: sub ? sub.name : null,
+    sub_category_id: bestId,
+    status: topStatus,
+    confidence: bestData.score >= 2 ? "high" : "medium",
+    explanation: `Matched keywords suggest "${sub ? sub.name : "?"}" — ${topStatus}.`,
+    document_required: sub?.document_required || false,
+    document_description: sub?.document_description || null,
+    document_deadline_days: sub?.document_deadline_days || null,
+  };
 }
 
-async function sbUpdateStatus(id, status) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?id=eq.${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, Prefer: "return=representation" },
-    body: JSON.stringify({ status }),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
-function StudentSearch({ onSelect }) {
+// ── Generic searchable dropdown ───────────────────────────────────
+function SearchBox({ placeholder, searchFn, onSelect, renderItem, autoFocus }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -126,7 +135,7 @@ function StudentSearch({ onSelect }) {
     if (val.trim().length < 2) { setResults([]); return; }
     debounce.current = setTimeout(async () => {
       setLoading(true);
-      const r = await searchStudents(val);
+      const r = await searchFn(val);
       setResults(r);
       setLoading(false);
     }, 300);
@@ -134,91 +143,24 @@ function StudentSearch({ onSelect }) {
 
   return (
     <div style={{ position: "relative" }}>
-      <input autoFocus value={query} onChange={handleChange} placeholder="Type name or Student ID..."
-        style={{ width: "100%", background: C.card, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 17, color: C.text, outline: "none", boxSizing: "border-box" }} />
+      <input autoFocus={autoFocus} value={query} onChange={handleChange} placeholder={placeholder}
+        style={{ width: "100%", background: C.card, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", fontSize: 16, color: C.text, outline: "none", boxSizing: "border-box" }} />
       {(loading || results.length > 0 || (query.length >= 2 && !loading)) && (
-        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, zIndex: 50, overflow: "hidden", boxShadow: "0 10px 30px rgba(15,23,42,0.12)" }}>
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, zIndex: 50, overflow: "hidden", boxShadow: "0 10px 30px rgba(15,23,42,0.12)", maxHeight: 320, overflowY: "auto" }}>
           {loading && <div style={{ padding: "14px 16px", color: C.textMuted, fontSize: 14 }}>Searching...</div>}
-          {!loading && results.map(s => (
-            <div key={s.student_id} onClick={() => { onSelect(s); setQuery(""); setResults([]); }}
-              style={{ padding: "12px 16px", cursor: "pointer", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}
+          {!loading && results.map((item, i) => (
+            <div key={i} onClick={() => { onSelect(item); setQuery(""); setResults([]); }}
+              style={{ padding: "12px 16px", cursor: "pointer", borderBottom: `1px solid ${C.border}` }}
               onMouseEnter={e => e.currentTarget.style.background = C.primaryBg}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <div>
-                <div style={{ fontWeight: 600, color: C.text }}>{s.name}</div>
-                <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{s.grade_section}</div>
-              </div>
-              <span style={{ fontSize: 13, color: C.textMuted, fontFamily: "monospace" }}>{s.student_id}</span>
+              {renderItem(item)}
             </div>
           ))}
           {!loading && results.length === 0 && query.length >= 2 && (
-            <div style={{ padding: "14px 16px", color: C.textMuted, fontSize: 14 }}>No students found.</div>
+            <div style={{ padding: "14px 16px", color: C.textMuted, fontSize: 14 }}>No results found.</div>
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function SlipPreview({ slip, onDone }) {
-  const statusColors = {
-    Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning
-  };
-  return (
-    <div style={{ background: C.card, borderRadius: 12, padding: "32px 36px", width: "100%", maxWidth: 480, boxShadow: "0 10px 30px rgba(15,23,42,0.1)", color: C.text, border: `1px solid ${C.border}` }}>
-      <div style={{ textAlign: "center", marginBottom: 20, borderBottom: `2px solid ${C.primary}`, paddingBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: C.textMuted }}>ATENEO DE ILOILO – SMCS</div>
-        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>DISCIPLINE OFFICE</div>
-        <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 2, color: C.primary }}>ADMISSION SLIP</div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 16 }}>
-        <Field label="Name" value={slip.name} span={true} />
-        <Field label="Date" value={slip.date} />
-        <Field label="Time Arrived" value={slip.time_arrived} />
-        <Field label="Gr. & Sec." value={slip.grade_section} span={true} />
-      </div>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6, color: C.textMuted }}>NATURE:</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {slip.nature.map(n => (
-            <span key={n} style={{ background: C.primary, color: "#fff", borderRadius: 4, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>{n}</span>
-          ))}
-        </div>
-      </div>
-      {slip.nature.includes("Late") && (
-        <div style={{ marginBottom: 14 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.textMuted }}>IF LATE: </span>
-          <span style={{ fontSize: 13, fontWeight: 700, marginLeft: 8 }}>{slip.meridiem}</span>
-        </div>
-      )}
-      {slip.reason && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: C.textMuted }}>REASON:</div>
-          <div style={{ fontSize: 13, fontStyle: "italic", color: C.text, lineHeight: 1.5, background: C.bg, borderRadius: 6, padding: "10px 12px" }}>"{slip.reason}"</div>
-        </div>
-      )}
-      {/* AI Suggested Status */}
-      {slip.ai_status && (
-        <div style={{ marginBottom: 14, background: `${statusColors[slip.ai_status]}15`, border: `1px solid ${statusColors[slip.ai_status]}`, borderRadius: 8, padding: "10px 14px" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: statusColors[slip.ai_status], marginBottom: 4 }}>🤖 AI SUGGESTED STATUS</div>
-          <div style={{ fontSize: 14, fontWeight: 800, color: statusColors[slip.ai_status] }}>{slip.ai_status}</div>
-          {slip.ai_explanation && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>{slip.ai_explanation}</div>}
-        </div>
-      )}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6, color: C.textMuted }}>FINAL STATUS:</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {STATUS_OPTIONS.map(s => (
-            <span key={s} style={{ borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 700, background: slip.status === s ? C.primary : C.bg, color: slip.status === s ? "#fff" : C.textLight, border: `1px solid ${slip.status === s ? C.primary : C.border}` }}>{s}</span>
-          ))}
-        </div>
-        {!slip.status && <div style={{ fontSize: 12, color: C.warning, marginTop: 6, fontWeight: 600 }}>⏳ Pending — POD officer will confirm status</div>}
-      </div>
-      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16, marginBottom: 16, fontSize: 11, color: C.textLight, textAlign: "center" }}>
-        Signed: ________________________<br />
-        <span style={{ fontWeight: 700 }}>Prefect of Discipline / Discipline Officer</span>
-      </div>
-      <button onClick={onDone} style={{ width: "100%", background: C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>Next Student</button>
     </div>
   );
 }
@@ -232,120 +174,178 @@ function Field({ label, value, span }) {
   );
 }
 
+function SlipPreview({ slip, onDone }) {
+  const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
+  return (
+    <div style={{ background: C.card, borderRadius: 12, padding: "32px 36px", width: "100%", maxWidth: 480, boxShadow: "0 10px 30px rgba(15,23,42,0.1)", color: C.text, border: `1px solid ${C.border}` }}>
+      <div style={{ textAlign: "center", marginBottom: 20, borderBottom: `2px solid ${C.primary}`, paddingBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: C.textMuted }}>ATENEO DE ILOILO – SMCS</div>
+        <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>DISCIPLINE OFFICE</div>
+        <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 2, color: C.primary }}>ADMISSION SLIP</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 16 }}>
+        <Field label="Name" value={slip.name} span={true} />
+        <Field label="Date" value={slip.date} />
+        <Field label="Time Arrived" value={slip.time_arrived} />
+        <Field label="Gr. & Sec." value={slip.grade_section} span={true} />
+        <Field label="Teacher" value={slip.teacher_name} span={true} />
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6, color: C.textMuted }}>NATURE:</div>
+        <span style={{ background: C.primary, color: "#fff", borderRadius: 4, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>{slip.category_name}</span>
+        {slip.meridiem && <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 700 }}>{slip.meridiem}</span>}
+      </div>
+      {slip.reason && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: C.textMuted }}>REASON:</div>
+          <div style={{ fontSize: 13, fontStyle: "italic", color: C.text, lineHeight: 1.5, background: C.bg, borderRadius: 6, padding: "10px 12px" }}>"{slip.reason}"</div>
+        </div>
+      )}
+      {slip.ai_sub_category && (
+        <div style={{ marginBottom: 14, background: `${statusColors[slip.ai_status] || C.textMuted}12`, border: `1px solid ${statusColors[slip.ai_status] || C.border}`, borderRadius: 8, padding: "10px 14px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 4 }}>🤖 SYSTEM SUGGESTION</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: statusColors[slip.ai_status] || C.text }}>{slip.ai_sub_category} · {slip.ai_status}</div>
+        </div>
+      )}
+      {slip.document_required && (
+        <div style={{ marginBottom: 14, background: "rgba(245,158,11,0.1)", border: `1px solid ${C.warning}`, borderRadius: 8, padding: "10px 14px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.warning, marginBottom: 4 }}>📄 DOCUMENT REQUIRED</div>
+          <div style={{ fontSize: 13, color: C.text }}>{slip.document_description}</div>
+          {slip.document_deadline && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Submit by: {slip.document_deadline}</div>}
+        </div>
+      )}
+      <div style={{ background: C.primaryBg, borderRadius: 8, padding: "12px 14px", marginBottom: 16, fontSize: 13, color: C.text, lineHeight: 1.5 }}>
+        Please see the <strong>POD officer</strong> for confirmation before proceeding to class.
+      </div>
+      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16, marginBottom: 16, fontSize: 11, color: C.textLight, textAlign: "center" }}>
+        Signed: ________________________<br />
+        <span style={{ fontWeight: 700 }}>Prefect of Discipline / Discipline Officer</span>
+      </div>
+      <button onClick={onDone} style={{ width: "100%", background: C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>Done — Next Student</button>
+    </div>
+  );
+}
+
 export default function App() {
-  const [view, setView] = useState("checkin");
-  const [step, setStep] = useState("search");
+  const [step, setStep] = useState("search"); // search | form | slip
+  const [categories, setCategories] = useState([]);
+  const [keywords, setKeywords] = useState([]);
+  const [subCategories, setSubCategories] = useState([]);
+  const [dataLoading, setDataLoading] = useState(true);
+
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [nature, setNature] = useState([]);
-  const [othersText, setOthersText] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [reason, setReason] = useState("");
   const [meridiem, setMeridiem] = useState(getMeridiem());
+  const [aiResult, setAiResult] = useState(null);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [lastSlip, setLastSlip] = useState(null);
-  const [log, setLog] = useState([]);
-  const [loadingLog, setLoadingLog] = useState(false);
-  const [filterNature, setFilterNature] = useState("All");
-  const [updatingId, setUpdatingId] = useState(null);
 
-  // AI state
-  const [aiResult, setAiResult] = useState(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const aiDebounce = useRef(null);
-
+  // Load reference data once on mount (Option A)
   useEffect(() => {
-    if (view === "log") {
-      setLoadingLog(true);
-      sbFetchSlips().then(setLog).catch(() => setLog([])).finally(() => setLoadingLog(false));
-    }
-  }, [view]);
+    Promise.all([fetchCategories(), fetchKeywords(), fetchSubCategories()])
+      .then(([cats, kws, subs]) => {
+        setCategories(cats);
+        setKeywords(kws);
+        setSubCategories(subs);
+      })
+      .finally(() => setDataLoading(false));
+  }, []);
 
-  // Auto-classify when reason changes and Late is selected
+  // Classify as reason changes
   useEffect(() => {
-    if (!reason.trim() || reason.trim().length < 15 || nature.length === 0) {
+    if (!reason.trim() || reason.trim().length < 5 || !selectedCategory) {
       setAiResult(null);
       return;
     }
-    clearTimeout(aiDebounce.current);
-    aiDebounce.current = setTimeout(async () => {
-      setAiLoading(true);
-      try {
-        const result = await classifyReason(reason, nature);
-        setAiResult(result);
-      } catch {
-        setAiResult(null);
-      } finally {
-        setAiLoading(false);
-      }
-    }, 1200);
-  }, [reason, nature]);
+    const result = classifyReason(reason, selectedCategory.name, keywords, subCategories);
+    setAiResult(result);
+  }, [reason, selectedCategory, keywords, subCategories]);
 
   function resetForm() {
-    setStep("search"); setSelectedStudent(null); setNature([]); setOthersText("");
-    setReason(""); setMeridiem(getMeridiem()); setErrors({}); setSubmitError("");
-    setAiResult(null); setAiLoading(false);
+    setStep("search");
+    setSelectedStudent(null);
+    setSelectedCategory(null);
+    setSelectedTeacher(null);
+    setReason("");
+    setMeridiem(getMeridiem());
+    setAiResult(null);
+    setErrors({});
+    setSubmitError("");
   }
-  function toggleNature(n) {
-    setNature(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]);
-  }
+
   function validate() {
     const e = {};
     if (!selectedStudent) e.student = "Please select a student";
-    if (nature.length === 0) e.nature = "Select at least one nature";
-    if (nature.includes("Others") && !othersText.trim()) e.others = "Please specify";
-    if (!reason.trim() || reason.trim().length < 10) e.reason = "Please provide a reason (min 10 characters)";
+    if (!selectedCategory) e.category = "Select the nature of visit";
+    if (selectedCategory?.requires_teacher && !selectedTeacher) e.teacher = "Select the teacher";
+    if (selectedCategory?.requires_reason && (!reason.trim() || reason.trim().length < 10)) e.reason = "Please provide a reason (min 10 characters)";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
+
+  function computeDeadline(days) {
+    if (!days) return null;
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+
   async function handleSubmit() {
     if (!validate()) return;
     setSubmitting(true); setSubmitError("");
+    const docDeadline = aiResult?.document_required ? computeDeadline(aiResult.document_deadline_days) : null;
     const slip = {
-      name: selectedStudent.name, student_id: selectedStudent.student_id,
+      name: selectedStudent.name,
+      student_id: selectedStudent.student_id,
       grade_section: selectedStudent.grade_section,
-      nature: nature.map(n => n === "Others" ? `Others: ${othersText}` : n),
-      reason: reason.trim(),
-      meridiem: nature.includes("Late") ? meridiem : null,
-      time_arrived: getTime(), date: getToday(),
-      status: aiResult?.status || null,
+      category_id: selectedCategory.id,
+      teacher_id: selectedTeacher?.id || null,
+      teacher_name: selectedTeacher?.full_name || null,
+      teacher_email: selectedTeacher?.email || null,
+      nature: [selectedCategory.name],
+      reason: reason.trim() || null,
+      meridiem: selectedCategory.name === "Late" ? meridiem : null,
+      time_arrived: getTime(),
+      date: getToday(),
+      ai_sub_category: aiResult?.sub_category || null,
       ai_status: aiResult?.status || null,
       ai_explanation: aiResult?.explanation || null,
+      status: null,
+      document_required: aiResult?.document_required || false,
+      document_status: aiResult?.document_required ? "Promised" : "Not Required",
+      document_deadline: docDeadline,
+      notification_sent: false,
     };
     try {
-      const [saved] = await sbInsertSlip(slip);
-      setLastSlip({ ...slip, id: saved?.id });
-      setView("slip"); resetForm();
-    } catch (err) { setSubmitError("Could not save. " + err.message); }
-    finally { setSubmitting(false); }
-  }
-  async function handleStatusUpdate(slipId, status) {
-    setUpdatingId(slipId);
-    try {
-      await sbUpdateStatus(slipId, status);
-      setLog(prev => prev.map(s => s.id === slipId ? { ...s, status } : s));
-    } catch (e) { console.error(e); }
-    setUpdatingId(null);
+      await sbInsertSlip(slip);
+      setLastSlip({
+        ...slip,
+        category_name: selectedCategory.name,
+        document_description: aiResult?.document_description,
+      });
+      setStep("slip");
+    } catch (err) {
+      setSubmitError("Could not save. " + err.message);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  const todayStr = getToday();
   const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
 
   const s = {
     root: { minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", display: "flex", flexDirection: "column", color: C.text },
     header: { background: C.card, borderBottom: `2px solid ${C.primary}`, padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
     badge: { background: C.primary, color: "#fff", fontWeight: 800, fontSize: 13, padding: "3px 10px", borderRadius: 4, letterSpacing: 1, textTransform: "uppercase" },
-    navBtn: (active) => ({ background: active ? C.primary : "transparent", color: active ? "#fff" : C.textMuted, border: `1px solid ${active ? C.primary : C.border}`, borderRadius: 6, padding: "6px 16px", fontWeight: 600, fontSize: 13, cursor: "pointer" }),
     main: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 16px" },
     card: { background: C.card, borderRadius: 16, padding: "36px 40px", width: "100%", maxWidth: 580, boxShadow: "0 10px 40px rgba(15,23,42,0.08)", border: `1px solid ${C.border}` },
     label: { fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: C.textMuted, textTransform: "uppercase", marginBottom: 8, display: "block" },
     errMsg: { fontSize: 12, color: C.danger, marginTop: 5 },
-    natureBtn: (active) => ({ padding: "10px 14px", border: `2px solid ${active ? C.primary : C.border}`, background: active ? C.primaryBg : C.card, color: active ? C.primary : C.textMuted, borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "center" }),
-    statusPill: (st) => {
-      const map = { Excused: [C.success, "rgba(16,185,129,0.12)"], Unexcused: [C.danger, "rgba(239,68,68,0.12)"], "Admit Temporarily": [C.warning, "rgba(245,158,11,0.12)"] };
-      const [color, bg] = map[st] || [C.textMuted, "rgba(100,116,139,0.12)"];
-      return { background: bg, color, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" };
-    },
+    catBtn: (active) => ({ padding: "14px 10px", border: `2px solid ${active ? C.primary : C.border}`, background: active ? C.primaryBg : C.card, color: active ? C.primary : C.textMuted, borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "center" }),
   };
 
   return (
@@ -359,49 +359,92 @@ export default function App() {
           <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.success, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 20, padding: "3px 10px" }}>🟢 Supabase</span>
           <span>📅 {getToday()}</span>
           <span>🕐 <Clock /></span>
-          <button style={s.navBtn(view === "checkin" || view === "slip")} onClick={() => { setView("checkin"); resetForm(); }}>New Slip</button>
-          <button style={s.navBtn(view === "log")} onClick={() => setView("log")}>Log & Status</button>
         </div>
       </div>
 
       <div style={s.main}>
-        {view === "checkin" && step === "search" && (
+
+        {/* STEP 1: SEARCH STUDENT */}
+        {step === "search" && (
           <div style={s.card}>
             <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 6, color: C.text }}>Find Student</div>
             <div style={{ fontSize: 14, color: C.textMuted, marginBottom: 28 }}>Search by name or Student ID number.</div>
-            <StudentSearch onSelect={st => { setSelectedStudent(st); setStep("form"); }} />
+            <SearchBox
+              placeholder="Type name or Student ID..."
+              searchFn={searchStudents}
+              autoFocus
+              onSelect={st => { setSelectedStudent(st); setStep("form"); }}
+              renderItem={item => (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: C.text }}>{item.name}</div>
+                    <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{item.grade_section}</div>
+                  </div>
+                  <span style={{ fontSize: 13, color: C.textMuted, fontFamily: "monospace" }}>{item.student_id}</span>
+                </div>
+              )}
+            />
+            {dataLoading && <div style={{ marginTop: 16, fontSize: 13, color: C.textLight }}>Loading categories...</div>}
           </div>
         )}
 
-        {view === "checkin" && step === "form" && (
+        {/* STEP 2: FORM */}
+        {step === "form" && (
           <div style={s.card}>
-            {/* Student bar */}
             <div style={{ background: C.primaryBg, border: `1px solid ${C.primary}`, borderRadius: 10, padding: "12px 16px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{selectedStudent?.name}</div>
                 <div style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>{selectedStudent?.student_id} · {selectedStudent?.grade_section || "No section"}</div>
               </div>
-              <button onClick={() => setStep("search")} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
+              <button onClick={resetForm} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
             </div>
 
-            {/* Nature */}
+            {/* Category buttons from DB */}
             <div style={{ marginBottom: 20 }}>
-              <label style={s.label}>Nature of Violation</label>
+              <label style={s.label}>Nature of Visit</label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-                {NATURE_OPTIONS.map(n => (
-                  <button key={n} style={s.natureBtn(nature.includes(n))} onClick={() => toggleNature(n)}>{n}</button>
+                {categories.map(cat => (
+                  <button key={cat.id} style={s.catBtn(selectedCategory?.id === cat.id)}
+                    onClick={() => { setSelectedCategory(cat); if (cat.name !== "Late") setMeridiem(getMeridiem()); }}
+                    title={cat.description || ""}>
+                    {cat.name}
+                  </button>
                 ))}
               </div>
-              {nature.includes("Others") && (
-                <input autoFocus value={othersText} onChange={e => setOthersText(e.target.value)} placeholder="Specify..."
-                  style={{ width: "100%", marginTop: 8, background: C.card, border: `1.5px solid ${C.primary}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box" }} />
-              )}
-              {errors.nature && <div style={s.errMsg}>{errors.nature}</div>}
-              {errors.others && <div style={s.errMsg}>{errors.others}</div>}
+              {errors.category && <div style={s.errMsg}>{errors.category}</div>}
             </div>
 
-            {/* If late: AM/PM */}
-            {nature.includes("Late") && (
+            {/* Teacher dropdown (if required) */}
+            {selectedCategory?.requires_teacher && (
+              <div style={{ marginBottom: 20 }}>
+                <label style={s.label}>Teacher</label>
+                {selectedTeacher ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.primaryBg, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "10px 14px" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: C.text, fontSize: 14 }}>{selectedTeacher.full_name}</div>
+                      <div style={{ fontSize: 12, color: C.textMuted }}>{selectedTeacher.email}</div>
+                    </div>
+                    <button onClick={() => setSelectedTeacher(null)} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
+                  </div>
+                ) : (
+                  <SearchBox
+                    placeholder="Search teacher by name..."
+                    searchFn={searchTeachers}
+                    onSelect={t => setSelectedTeacher(t)}
+                    renderItem={item => (
+                      <div>
+                        <div style={{ fontWeight: 600, color: C.text }}>{item.full_name}</div>
+                        <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{item.email}</div>
+                      </div>
+                    )}
+                  />
+                )}
+                {errors.teacher && <div style={s.errMsg}>{errors.teacher}</div>}
+              </div>
+            )}
+
+            {/* AM/PM for Late */}
+            {selectedCategory?.name === "Late" && (
               <div style={{ marginBottom: 20 }}>
                 <label style={s.label}>If Late</label>
                 <div style={{ display: "flex", gap: 10 }}>
@@ -409,61 +452,37 @@ export default function App() {
                     <button key={m} onClick={() => setMeridiem(m)} style={{ flex: 1, padding: "10px", border: `2px solid ${meridiem === m ? C.primary : C.border}`, background: meridiem === m ? C.primaryBg : C.card, color: meridiem === m ? C.primary : C.textMuted, borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>{m}</button>
                   ))}
                   <div style={{ flex: 2, background: C.primaryBg, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "10px 14px", fontSize: 14, color: C.primary, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-                    🕐 Time Arrived: <Clock />
+                    🕐 Time: <Clock />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Reason with quick-select */}
-            <div style={{ marginBottom: 24 }}>
-              <label style={s.label}>Student's Reason / Explanation</label>
-
-              {/* Quick-select chips — shown when Late is selected */}
-              {nature.includes("Late") && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, fontWeight: 600 }}>QUICK SELECT:</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {LATE_REASONS.map(r => (
-                      <button key={r.label} onClick={() => setReason(r.label)}
-                        style={{ background: reason === r.label ? C.primaryBg : C.bg, border: `1px solid ${reason === r.label ? C.primary : C.border}`, color: reason === r.label ? C.primary : C.textMuted, borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-                        {r.icon} {r.label}
-                      </button>
-                    ))}
-                  </div>
+            {/* Reason */}
+            {selectedCategory?.requires_reason && (
+              <div style={{ marginBottom: 24 }}>
+                <label style={s.label}>Reason / Explanation</label>
+                <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Explain the reason in your own words..." rows={3}
+                  style={{ width: "100%", background: C.card, border: `1.5px solid ${reason.trim().length >= 10 ? C.primary : C.border}`, borderRadius: 8, padding: "12px 14px", fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box", resize: "none", lineHeight: 1.6, fontFamily: "inherit" }} />
+                <div style={{ fontSize: 12, marginTop: 4, textAlign: "right", color: reason.trim().length >= 10 ? C.success : C.textLight }}>
+                  {reason.trim().length < 10 ? `${10 - reason.trim().length} more characters needed` : "✓ Good"}
                 </div>
-              )}
+                {errors.reason && <div style={s.errMsg}>{errors.reason}</div>}
 
-              <textarea value={reason} onChange={e => setReason(e.target.value)}
-                placeholder={nature.includes("Late") ? "Or type a custom reason here..." : "Student explains the reason for this violation..."}
-                rows={3}
-                style={{ width: "100%", background: C.card, border: `1.5px solid ${reason.trim().length >= 10 ? C.primary : C.border}`, borderRadius: 8, padding: "12px 14px", fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box", resize: "none", lineHeight: 1.6, fontFamily: "inherit" }} />
-              <div style={{ fontSize: 12, marginTop: 4, textAlign: "right", color: reason.trim().length >= 10 ? C.success : C.textLight }}>
-                {reason.trim().length < 10 ? `${10 - reason.trim().length} more characters needed` : "✓ Good"}
+                {/* System suggestion (visible to student as info, POD confirms later) */}
+                {aiResult && (
+                  <div style={{ marginTop: 10, background: `${statusColors[aiResult.status] || C.textMuted}10`, border: `1.5px solid ${statusColors[aiResult.status] || C.border}`, borderRadius: 8, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>🤖 System Suggestion (POD will confirm)</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: statusColors[aiResult.status] || C.text }}>
+                      {aiResult.sub_category ? `${aiResult.sub_category} · ` : ""}{aiResult.status}
+                    </div>
+                    {aiResult.document_required && (
+                      <div style={{ fontSize: 12, color: C.warning, marginTop: 4, fontWeight: 600 }}>📄 Will require: {aiResult.document_description}</div>
+                    )}
+                  </div>
+                )}
               </div>
-              {errors.reason && <div style={s.errMsg}>{errors.reason}</div>}
-
-              {/* AI Classification Result */}
-              {aiLoading && (
-                <div style={{ marginTop: 10, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.textMuted }}>
-                  <span style={{ fontSize: 16 }}>🤖</span> Analyzing reason...
-                </div>
-              )}
-              {!aiLoading && aiResult && (
-                <div style={{ marginTop: 10, background: `${statusColors[aiResult.status]}10`, border: `1.5px solid ${statusColors[aiResult.status]}`, borderRadius: 8, padding: "12px 14px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 14 }}>🤖</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>AI Suggested Status</span>
-                    {aiResult.confidence === "high"
-                      ? <span style={{ fontSize: 10, background: C.success, color: "#fff", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>High confidence</span>
-                      : <span style={{ fontSize: 10, background: C.warning, color: "#fff", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>Review needed</span>
-                    }
-                  </div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: statusColors[aiResult.status] }}>{aiResult.status}</div>
-                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 3 }}>{aiResult.explanation}</div>
-                </div>
-              )}
-            </div>
+            )}
 
             {submitError && (
               <div style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.danger, marginBottom: 12 }}>
@@ -472,106 +491,19 @@ export default function App() {
             )}
 
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setStep("search")} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>← Back</button>
+              <button onClick={resetForm} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>← Back</button>
               <button onClick={handleSubmit} disabled={submitting} style={{ flex: 3, background: submitting ? C.textLight : C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 16, fontWeight: 700, cursor: submitting ? "not-allowed" : "pointer" }}>
-                {submitting ? "Saving..." : "Generate Admission Slip →"}
+                {submitting ? "Saving..." : "Submit →"}
               </button>
             </div>
           </div>
         )}
 
-        {view === "slip" && lastSlip && (
-          <SlipPreview slip={lastSlip} onDone={() => { setView("checkin"); resetForm(); }} />
+        {/* STEP 3: SLIP */}
+        {step === "slip" && lastSlip && (
+          <SlipPreview slip={lastSlip} onDone={resetForm} />
         )}
 
-        {view === "log" && (
-          <div style={{ background: C.card, borderRadius: 16, padding: "28px 32px", width: "100%", maxWidth: 1050, boxShadow: "0 10px 40px rgba(15,23,42,0.08)", border: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: C.text }}>Admission Slip Log</div>
-                <div style={{ fontSize: 13, color: C.textMuted, marginTop: 2 }}>POD officers can confirm or override AI-suggested status here</div>
-              </div>
-              <button onClick={() => { setLoadingLog(true); sbFetchSlips().then(setLog).catch(() => {}).finally(() => setLoadingLog(false)); }}
-                style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>🔄 Refresh</button>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-              {[
-                ["Today", log.filter(e => e.date === todayStr).length, C.primary],
-                ["Pending", log.filter(e => !e.status).length, C.textMuted],
-                ["Excused", log.filter(e => e.status === "Excused").length, C.success],
-                ["Unexcused", log.filter(e => e.status === "Unexcused").length, C.danger],
-                ["Admit Temp.", log.filter(e => e.status === "Admit Temporarily").length, C.warning],
-                ["Total", log.length, C.text],
-              ].map(([label, count, color]) => (
-                <div key={label} style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 16px", flex: "1 1 70px", minWidth: 70 }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color }}>{count}</div>
-                  <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, marginTop: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-              {["All", ...NATURE_OPTIONS].map(f => (
-                <button key={f} onClick={() => setFilterNature(f)} style={{ background: filterNature === f ? C.primary : C.bg, color: filterNature === f ? "#fff" : C.textMuted, border: `1px solid ${filterNature === f ? C.primary : C.border}`, borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{f}</button>
-              ))}
-            </div>
-
-            {loadingLog ? (
-              <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>Loading...</div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: C.bg }}>
-                      {["Time", "Date", "Name", "ID", "Gr. & Sec.", "Nature", "Reason", "AI Status", "Final Status", "Set Status"].map(h => (
-                        <th key={h} style={{ textAlign: "left", padding: "10px 12px", fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8, whiteSpace: "nowrap" }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {log.filter(e => filterNature === "All" || (e.nature || []).some(n => n.startsWith(filterNature))).map((e, i) => (
-                      <tr key={e.id || i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <td style={{ padding: "12px", color: C.primary, fontWeight: 700, whiteSpace: "nowrap" }}>{e.time_arrived}</td>
-                        <td style={{ padding: "12px", color: C.textMuted, whiteSpace: "nowrap" }}>{e.date}</td>
-                        <td style={{ padding: "12px", fontWeight: 600, color: C.text, whiteSpace: "nowrap" }}>{e.name}</td>
-                        <td style={{ padding: "12px", color: C.textMuted, fontFamily: "monospace" }}>{e.student_id}</td>
-                        <td style={{ padding: "12px", color: C.text, whiteSpace: "nowrap" }}>{e.grade_section}</td>
-                        <td style={{ padding: "12px" }}>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                            {(e.nature || []).map(n => (
-                              <span key={n} style={{ background: C.primaryBg, color: C.primary, borderRadius: 4, padding: "2px 7px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>{n}</span>
-                            ))}
-                          </div>
-                        </td>
-                        <td style={{ padding: "12px", color: C.textMuted, fontStyle: "italic", maxWidth: 160 }}>{e.reason || "—"}</td>
-                        <td style={{ padding: "12px" }}>
-                          {e.ai_status
-                            ? <span style={{ ...s.statusPill(e.ai_status), display: "inline-flex", alignItems: "center", gap: 4 }}>🤖 {e.ai_status}</span>
-                            : <span style={{ fontSize: 11, color: C.textLight }}>—</span>}
-                        </td>
-                        <td style={{ padding: "12px" }}>
-                          {e.status ? <span style={s.statusPill(e.status)}>{e.status}</span> : <span style={{ fontSize: 11, color: C.textLight }}>Pending</span>}
-                        </td>
-                        <td style={{ padding: "12px" }}>
-                          <div style={{ display: "flex", gap: 4 }}>
-                            {STATUS_OPTIONS.map(st => (
-                              <button key={st} disabled={updatingId === e.id || e.status === st} onClick={() => handleStatusUpdate(e.id, st)}
-                                style={{ padding: "4px 9px", fontSize: 10, fontWeight: 700, borderRadius: 4, cursor: e.status === st ? "default" : "pointer", whiteSpace: "nowrap", background: e.status === st ? C.bg : C.card, color: e.status === st ? C.textLight : C.text, border: `1px solid ${C.border}`, opacity: updatingId === e.id ? 0.5 : 1 }}>
-                                {st === "Admit Temporarily" ? "Admit Temp." : st}
-                              </button>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {log.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>No slips yet.</div>}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
