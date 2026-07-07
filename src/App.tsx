@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-
-const SUPABASE_URL = "https://ghofeoxrkrcibzeqcbih.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdob2Zlb3hya3JjaWJ6ZXFjYmloIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NTI4MTIsImV4cCI6MjA5ODIyODgxMn0.RsFkrqiuv4CzXGRg2FP33nTj5dMUtD2aF8w5NQYtmKQ";
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
+import Login from "./Login";
 
 const sbHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
@@ -12,7 +11,7 @@ const C = {
   success: "#10b981", warning: "#f59e0b", danger: "#ef4444",
 };
 
-const STATUS_OPTIONS = ["Excused", "Unexcused", "Admit Temporarily"];
+const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
 
 function getToday() {
   return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -35,19 +34,16 @@ async function fetchCategories() {
   if (!res.ok) return [];
   return res.json();
 }
-
 async function fetchKeywords() {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/keywords?is_active=eq.true&select=nature,keyword,suggested_status,weight,sub_category_id`, { headers: sbHeaders });
   if (!res.ok) return [];
   return res.json();
 }
-
 async function fetchSubCategories() {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/sub_categories?is_active=eq.true&select=id,name,category_id,suggested_status,document_required,document_description,document_deadline_days`, { headers: sbHeaders });
   if (!res.ok) return [];
   return res.json();
 }
-
 async function searchStudents(query) {
   if (!query || query.trim().length < 2) return [];
   const q = encodeURIComponent(query.trim());
@@ -59,7 +55,6 @@ async function searchStudents(query) {
     grade_section: [r.level, r.section].filter(Boolean).join(" - "),
   }));
 }
-
 async function searchTeachers(query) {
   if (!query || query.trim().length < 2) return [];
   const q = encodeURIComponent(query.trim());
@@ -72,7 +67,6 @@ async function searchTeachers(query) {
     email: t.email || "",
   }));
 }
-
 async function sbInsertSlip(slip) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips`, {
     method: "POST",
@@ -83,12 +77,10 @@ async function sbInsertSlip(slip) {
   return res.json();
 }
 
-// ── Rules-based classifier (keywords from DB) ─────────────────────
 function classifyReason(reason, categoryName, keywords, subCategories) {
   const r = reason.toLowerCase();
   const relevantKw = keywords.filter(k => k.nature === categoryName || k.nature === "Any");
-
-  const scores = {}; // sub_category_id -> { score, status }
+  const scores = {};
   for (const k of relevantKw) {
     if (r.includes(k.keyword.toLowerCase())) {
       if (!scores[k.sub_category_id]) scores[k.sub_category_id] = { score: 0, statusVotes: {} };
@@ -97,18 +89,15 @@ function classifyReason(reason, categoryName, keywords, subCategories) {
       scores[k.sub_category_id].statusVotes[st] = (scores[k.sub_category_id].statusVotes[st] || 0) + k.weight;
     }
   }
-
   const entries = Object.entries(scores);
   if (entries.length === 0) {
     return { sub_category: null, status: "Admit Temporarily", confidence: "medium",
       explanation: "No matching keywords. POD officer review needed." };
   }
-
   entries.sort((a, b) => b[1].score - a[1].score);
   const [bestId, bestData] = entries[0];
   const sub = subCategories.find(s => String(s.id) === String(bestId));
   const topStatus = Object.entries(bestData.statusVotes).sort((a, b) => b[1] - a[1])[0][0];
-
   return {
     sub_category: sub ? sub.name : null,
     sub_category_id: bestId,
@@ -121,13 +110,11 @@ function classifyReason(reason, categoryName, keywords, subCategories) {
   };
 }
 
-// ── Generic searchable dropdown ───────────────────────────────────
 function SearchBox({ placeholder, searchFn, onSelect, renderItem, autoFocus }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const debounce = useRef(null);
-
   function handleChange(e) {
     const val = e.target.value;
     setQuery(val);
@@ -140,7 +127,6 @@ function SearchBox({ placeholder, searchFn, onSelect, renderItem, autoFocus }) {
       setLoading(false);
     }, 300);
   }
-
   return (
     <div style={{ position: "relative" }}>
       <input autoFocus={autoFocus} value={query} onChange={handleChange} placeholder={placeholder}
@@ -226,13 +212,13 @@ function SlipPreview({ slip, onDone }) {
   );
 }
 
-export default function App() {
-  const [step, setStep] = useState("search"); // search | form | slip
+// ── Kiosk (public) ────────────────────────────────────────────────
+function Kiosk({ onStaffLogin }) {
+  const [step, setStep] = useState("search");
   const [categories, setCategories] = useState([]);
   const [keywords, setKeywords] = useState([]);
   const [subCategories, setSubCategories] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
-
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
@@ -244,39 +230,22 @@ export default function App() {
   const [submitError, setSubmitError] = useState("");
   const [lastSlip, setLastSlip] = useState(null);
 
-  // Load reference data once on mount (Option A)
   useEffect(() => {
     Promise.all([fetchCategories(), fetchKeywords(), fetchSubCategories()])
-      .then(([cats, kws, subs]) => {
-        setCategories(cats);
-        setKeywords(kws);
-        setSubCategories(subs);
-      })
+      .then(([cats, kws, subs]) => { setCategories(cats); setKeywords(kws); setSubCategories(subs); })
       .finally(() => setDataLoading(false));
   }, []);
 
-  // Classify as reason changes
   useEffect(() => {
-    if (!reason.trim() || reason.trim().length < 5 || !selectedCategory) {
-      setAiResult(null);
-      return;
-    }
-    const result = classifyReason(reason, selectedCategory.name, keywords, subCategories);
-    setAiResult(result);
+    if (!reason.trim() || reason.trim().length < 5 || !selectedCategory) { setAiResult(null); return; }
+    setAiResult(classifyReason(reason, selectedCategory.name, keywords, subCategories));
   }, [reason, selectedCategory, keywords, subCategories]);
 
   function resetForm() {
-    setStep("search");
-    setSelectedStudent(null);
-    setSelectedCategory(null);
-    setSelectedTeacher(null);
-    setReason("");
-    setMeridiem(getMeridiem());
-    setAiResult(null);
-    setErrors({});
-    setSubmitError("");
+    setStep("search"); setSelectedStudent(null); setSelectedCategory(null);
+    setSelectedTeacher(null); setReason(""); setMeridiem(getMeridiem());
+    setAiResult(null); setErrors({}); setSubmitError("");
   }
-
   function validate() {
     const e = {};
     if (!selectedStudent) e.student = "Please select a student";
@@ -286,57 +255,37 @@ export default function App() {
     setErrors(e);
     return Object.keys(e).length === 0;
   }
-
   function computeDeadline(days) {
     if (!days) return null;
-    const d = new Date();
-    d.setDate(d.getDate() + days);
+    const d = new Date(); d.setDate(d.getDate() + days);
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   }
-
   async function handleSubmit() {
     if (!validate()) return;
     setSubmitting(true); setSubmitError("");
     const docDeadline = aiResult?.document_required ? computeDeadline(aiResult.document_deadline_days) : null;
     const slip = {
-      name: selectedStudent.name,
-      student_id: selectedStudent.student_id,
-      grade_section: selectedStudent.grade_section,
-      category_id: selectedCategory.id,
-      teacher_id: selectedTeacher?.id || null,
-      teacher_name: selectedTeacher?.full_name || null,
-      teacher_email: selectedTeacher?.email || null,
-      nature: [selectedCategory.name],
-      reason: reason.trim() || null,
-      meridiem: selectedCategory.name === "Late" ? meridiem : null,
-      time_arrived: getTime(),
-      date: getToday(),
-      ai_sub_category: aiResult?.sub_category || null,
-      ai_status: aiResult?.status || null,
-      ai_explanation: aiResult?.explanation || null,
-      status: null,
+      name: selectedStudent.name, student_id: selectedStudent.student_id,
+      grade_section: selectedStudent.grade_section, category_id: selectedCategory.id,
+      teacher_id: selectedTeacher?.id || null, teacher_name: selectedTeacher?.full_name || null,
+      teacher_email: selectedTeacher?.email || null, nature: [selectedCategory.name],
+      reason: reason.trim() || null, meridiem: selectedCategory.name === "Late" ? meridiem : null,
+      time_arrived: getTime(), date: getToday(),
+      ai_sub_category: aiResult?.sub_category || null, ai_status: aiResult?.status || null,
+      ai_explanation: aiResult?.explanation || null, status: null,
       document_required: aiResult?.document_required || false,
       document_status: aiResult?.document_required ? "Promised" : "Not Required",
-      document_deadline: docDeadline,
-      notification_sent: false,
+      document_deadline: docDeadline, notification_sent: false,
     };
     try {
       await sbInsertSlip(slip);
-      setLastSlip({
-        ...slip,
-        category_name: selectedCategory.name,
-        document_description: aiResult?.document_description,
-      });
+      setLastSlip({ ...slip, category_name: selectedCategory.name, document_description: aiResult?.document_description });
       setStep("slip");
-    } catch (err) {
-      setSubmitError("Could not save. " + err.message);
-    } finally {
-      setSubmitting(false);
-    }
+    } catch (err) { setSubmitError("Could not save. " + err.message); }
+    finally { setSubmitting(false); }
   }
 
   const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
-
   const s = {
     root: { minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", display: "flex", flexDirection: "column", color: C.text },
     header: { background: C.card, borderBottom: `2px solid ${C.primary}`, padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
@@ -356,23 +305,18 @@ export default function App() {
           <span style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Admission Slip — Discipline Office</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, color: C.textMuted }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.success, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 20, padding: "3px 10px" }}>🟢 Supabase</span>
           <span>📅 {getToday()}</span>
           <span>🕐 <Clock /></span>
+          <button onClick={onStaffLogin} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 14px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Staff Login</button>
         </div>
       </div>
 
       <div style={s.main}>
-
-        {/* STEP 1: SEARCH STUDENT */}
         {step === "search" && (
           <div style={s.card}>
             <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 6, color: C.text }}>Find Student</div>
             <div style={{ fontSize: 14, color: C.textMuted, marginBottom: 28 }}>Search by name or Student ID number.</div>
-            <SearchBox
-              placeholder="Type name or Student ID..."
-              searchFn={searchStudents}
-              autoFocus
+            <SearchBox placeholder="Type name or Student ID..." searchFn={searchStudents} autoFocus
               onSelect={st => { setSelectedStudent(st); setStep("form"); }}
               renderItem={item => (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -382,13 +326,11 @@ export default function App() {
                   </div>
                   <span style={{ fontSize: 13, color: C.textMuted, fontFamily: "monospace" }}>{item.student_id}</span>
                 </div>
-              )}
-            />
+              )} />
             {dataLoading && <div style={{ marginTop: 16, fontSize: 13, color: C.textLight }}>Loading categories...</div>}
           </div>
         )}
 
-        {/* STEP 2: FORM */}
         {step === "form" && (
           <div style={s.card}>
             <div style={{ background: C.primaryBg, border: `1px solid ${C.primary}`, borderRadius: 10, padding: "12px 16px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -399,22 +341,18 @@ export default function App() {
               <button onClick={resetForm} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
             </div>
 
-            {/* Category buttons from DB */}
             <div style={{ marginBottom: 20 }}>
               <label style={s.label}>Nature of Visit</label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
                 {categories.map(cat => (
                   <button key={cat.id} style={s.catBtn(selectedCategory?.id === cat.id)}
                     onClick={() => { setSelectedCategory(cat); if (cat.name !== "Late") setMeridiem(getMeridiem()); }}
-                    title={cat.description || ""}>
-                    {cat.name}
-                  </button>
+                    title={cat.description || ""}>{cat.name}</button>
                 ))}
               </div>
               {errors.category && <div style={s.errMsg}>{errors.category}</div>}
             </div>
 
-            {/* Teacher dropdown (if required) */}
             {selectedCategory?.requires_teacher && (
               <div style={{ marginBottom: 20 }}>
                 <label style={s.label}>Teacher</label>
@@ -427,23 +365,19 @@ export default function App() {
                     <button onClick={() => setSelectedTeacher(null)} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
                   </div>
                 ) : (
-                  <SearchBox
-                    placeholder="Search teacher by name..."
-                    searchFn={searchTeachers}
+                  <SearchBox placeholder="Search teacher by name..." searchFn={searchTeachers}
                     onSelect={t => setSelectedTeacher(t)}
                     renderItem={item => (
                       <div>
                         <div style={{ fontWeight: 600, color: C.text }}>{item.full_name}</div>
                         <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{item.email}</div>
                       </div>
-                    )}
-                  />
+                    )} />
                 )}
                 {errors.teacher && <div style={s.errMsg}>{errors.teacher}</div>}
               </div>
             )}
 
-            {/* AM/PM for Late */}
             {selectedCategory?.name === "Late" && (
               <div style={{ marginBottom: 20 }}>
                 <label style={s.label}>If Late</label>
@@ -458,7 +392,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Reason */}
             {selectedCategory?.requires_reason && (
               <div style={{ marginBottom: 24 }}>
                 <label style={s.label}>Reason / Explanation</label>
@@ -468,8 +401,6 @@ export default function App() {
                   {reason.trim().length < 10 ? `${10 - reason.trim().length} more characters needed` : "✓ Good"}
                 </div>
                 {errors.reason && <div style={s.errMsg}>{errors.reason}</div>}
-
-                {/* System suggestion (visible to student as info, POD confirms later) */}
                 {aiResult && (
                   <div style={{ marginTop: 10, background: `${statusColors[aiResult.status] || C.textMuted}10`, border: `1.5px solid ${statusColors[aiResult.status] || C.border}`, borderRadius: 8, padding: "12px 14px" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>🤖 System Suggestion (POD will confirm)</div>
@@ -485,9 +416,7 @@ export default function App() {
             )}
 
             {submitError && (
-              <div style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.danger, marginBottom: 12 }}>
-                ⚠️ {submitError}
-              </div>
+              <div style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.danger, marginBottom: 12 }}>⚠️ {submitError}</div>
             )}
 
             <div style={{ display: "flex", gap: 10 }}>
@@ -499,12 +428,108 @@ export default function App() {
           </div>
         )}
 
-        {/* STEP 3: SLIP */}
-        {step === "slip" && lastSlip && (
-          <SlipPreview slip={lastSlip} onDone={resetForm} />
-        )}
-
+        {step === "slip" && lastSlip && <SlipPreview slip={lastSlip} onDone={resetForm} />}
       </div>
     </div>
   );
+}
+
+// ── Placeholder Dashboard (full version in Step 4) ────────────────
+function Dashboard({ profile, onSignOut }) {
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", color: C.text }}>
+      <div style={{ background: C.card, borderBottom: `2px solid ${C.primary}`, padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ background: C.primary, color: "#fff", fontWeight: 800, fontSize: 13, padding: "3px 10px", borderRadius: 4, letterSpacing: 1 }}>POD</span>
+          <span style={{ fontSize: 18, fontWeight: 700 }}>POD Dashboard</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{profile?.full_name || profile?.email}</div>
+            <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{profile?.role}</div>
+          </div>
+          <button onClick={onSignOut} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 14px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Sign Out</button>
+        </div>
+      </div>
+      <div style={{ maxWidth: 700, margin: "60px auto", padding: "0 20px", textAlign: "center" }}>
+        <div style={{ background: C.card, borderRadius: 16, padding: "48px 40px", border: `1px solid ${C.border}`, boxShadow: "0 10px 40px rgba(15,23,42,0.08)" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+          <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>You're logged in!</div>
+          <div style={{ fontSize: 15, color: C.textMuted, marginBottom: 8 }}>Welcome, {profile?.full_name || profile?.email}.</div>
+          <div style={{ fontSize: 14, color: C.textLight }}>Your role: <strong style={{ color: C.primary }}>{profile?.role}</strong></div>
+          <div style={{ marginTop: 24, padding: "16px", background: C.primaryBg, borderRadius: 10, fontSize: 14, color: C.text }}>
+            The full slip log and confirmation view will appear here in the next step (Phase 2, Step 4).
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Root App with auth state ──────────────────────────────────────
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showLogin, setShowLogin] = useState(false);
+  const inactivityTimer = useRef(null);
+
+  // Load session on mount and subscribe to changes
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, sess) => {
+      setSession(sess);
+      if (!sess) { setProfile(null); setShowLogin(false); }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // Fetch profile when session is present
+  useEffect(() => {
+    if (!session) { setProfile(null); return; }
+    supabase.from("profiles").select("*").eq("id", session.user.id).single()
+      .then(({ data }) => setProfile(data));
+  }, [session]);
+
+  // Inactivity auto-logout
+  useEffect(() => {
+    if (!session) return;
+    function resetTimer() {
+      clearTimeout(inactivityTimer.current);
+      inactivityTimer.current = setTimeout(() => {
+        supabase.auth.signOut();
+      }, INACTIVITY_LIMIT);
+    }
+    const events = ["mousedown", "keydown", "touchstart", "scroll"];
+    events.forEach(e => window.addEventListener(e, resetTimer));
+    resetTimer();
+    return () => {
+      clearTimeout(inactivityTimer.current);
+      events.forEach(e => window.removeEventListener(e, resetTimer));
+    };
+  }, [session]);
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+  }
+
+  if (authLoading) {
+    return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', system-ui, sans-serif", color: C.textMuted }}>Loading...</div>;
+  }
+
+  // Logged in → dashboard
+  if (session && profile) {
+    return <Dashboard profile={profile} onSignOut={handleSignOut} />;
+  }
+
+  // Login screen
+  if (showLogin) {
+    return <Login onBack={() => setShowLogin(false)} />;
+  }
+
+  // Default → public kiosk
+  return <Kiosk onStaffLogin={() => setShowLogin(true)} />;
 }
