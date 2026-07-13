@@ -43,6 +43,27 @@ async function updateSlip(id, patch) {
   return res.json();
 }
 
+// Invokes the notify-teacher Edge Function to email the teacher. Non-fatal:
+// the slip is already saved before this runs, so a notification failure never
+// blocks the confirmation — it is only reported back to the officer.
+async function notifyTeacher(slipId, senderEmail, senderName) {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/notify-teacher`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token || SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ slipId, senderEmail, senderName }),
+  });
+  let payload = {};
+  try { payload = await res.json(); } catch { /* ignore */ }
+  if (!res.ok) throw new Error(payload.error || payload.detail || `HTTP ${res.status}`);
+  return payload; // { status: "sent" | "skipped", ... }
+}
+
 export default function Dashboard({ profile, onSignOut }) {
   const [slips, setSlips] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,6 +73,7 @@ export default function Dashboard({ profile, onSignOut }) {
   const [search, setSearch] = useState("");
   const [selectedSlip, setSelectedSlip] = useState(null); // for confirm modal
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(null); // { kind: "ok" | "warn", text }
 
   async function loadSlips() {
     setLoading(true); setError("");
@@ -120,6 +142,20 @@ export default function Dashboard({ profile, onSignOut }) {
       </div>
 
       <div style={s.main}>
+        {/* Notification result banner */}
+        {notice && (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+            background: notice.kind === "ok" ? "rgba(16,185,129,0.10)" : "rgba(245,158,11,0.12)",
+            border: `1px solid ${notice.kind === "ok" ? C.success : C.warning}`,
+            color: notice.kind === "ok" ? "#065f46" : "#92400e",
+            borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 600, marginBottom: 16,
+          }}>
+            <span>{notice.kind === "ok" ? "✅ " : "⚠️ "}{notice.text}</span>
+            <button onClick={() => setNotice(null)} style={{ background: "transparent", border: "none", fontSize: 18, cursor: "pointer", color: "inherit", lineHeight: 1 }}>×</button>
+          </div>
+        )}
+
         {/* Stats */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div style={s.statCard(C.primary)}><div style={{ fontSize: 26, fontWeight: 800, color: C.primary }}>{stats.today}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Today</div></div>
@@ -174,9 +210,10 @@ export default function Dashboard({ profile, onSignOut }) {
       {selectedSlip && (
         <ConfirmModal slip={selectedSlip} profile={profile}
           onClose={() => setSelectedSlip(null)}
-          onSaved={(updated) => {
+          onSaved={(updated, notif) => {
             setSlips(prev => prev.map(sl => sl.id === updated.id ? updated : sl));
             setSelectedSlip(null);
+            if (notif) setNotice(notif);
           }} />
       )}
     </div>
@@ -271,10 +308,24 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
         confirmed_by: profile?.full_name || profile?.email,
         confirmed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        // notification_sent stays false — Phase 3 will flip it after actually sending
       };
       const [updated] = await updateSlip(slip.id, patch);
-      onSaved(updated);
+
+      // Slip is saved. Attempt the teacher email notification — never block on it.
+      let notif = null;
+      try {
+        const r = await notifyTeacher(slip.id, profile?.email, profile?.full_name);
+        if (r.status === "sent") {
+          updated.notification_sent = true;
+          updated.notification_sent_at = new Date().toISOString();
+          notif = { kind: "ok", text: `Slip confirmed. Teacher notified by email (${r.to}).` };
+        } else {
+          notif = { kind: "warn", text: `Slip confirmed, but email skipped: ${r.reason || "no teacher on file"}.` };
+        }
+      } catch (ne) {
+        notif = { kind: "warn", text: `Slip confirmed, but the email did not send: ${ne.message}` };
+      }
+      onSaved(updated, notif);
     } catch (e) {
       setErr("Could not save: " + e.message);
     } finally {
@@ -342,7 +393,7 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
         {err && <div style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.danger, marginBottom: 12 }}>{err}</div>}
 
         <div style={{ background: C.primaryBg, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.text, marginBottom: 16 }}>
-          ℹ️ Confirming will notify the teacher via email and Teams (activates in Phase 3).
+          ℹ️ Confirming emails the teacher{slip.teacher_email ? ` (${slip.teacher_email})` : ""} from your account.
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
