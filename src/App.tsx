@@ -47,6 +47,18 @@ async function fetchSubCategories() {
   if (!res.ok) return [];
   return res.json();
 }
+// Public read of the maintenance toggle (anon-scoped to these two keys).
+// Fails open — any error leaves the kiosk available.
+async function fetchMaintenance() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=in.(maintenance_mode,maintenance_message)&select=key,value`, { headers: sbHeaders });
+    if (!res.ok) return { on: false, message: "" };
+    const rows = await res.json();
+    const map = {};
+    for (const r of rows) map[r.key] = r.value;
+    return { on: map.maintenance_mode === true, message: typeof map.maintenance_message === "string" ? map.maintenance_message : "" };
+  } catch { return { on: false, message: "" }; }
+}
 async function searchStudents(query) {
   if (!query || query.trim().length < 2) return [];
   const q = encodeURIComponent(query.trim());
@@ -248,12 +260,15 @@ function Kiosk({ onStaffLogin }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [lastSlip, setLastSlip] = useState(null);
+  const [maintenance, setMaintenance] = useState({ on: false, message: "" });
 
   useEffect(() => {
     Promise.all([fetchCategories(), fetchKeywords(), fetchSubCategories()])
       .then(([cats, kws, subs]) => { setCategories(cats); setKeywords(kws); setSubCategories(subs); })
       .finally(() => setDataLoading(false));
   }, []);
+
+  useEffect(() => { fetchMaintenance().then(setMaintenance); }, []);
 
   useEffect(() => {
     if (!reason.trim() || reason.trim().length < 5 || !selectedCategory) { setAiResult(null); return; }
@@ -331,6 +346,15 @@ function Kiosk({ onStaffLogin }) {
       </div>
 
       <div style={s.main}>
+        {maintenance.on ? (
+          <div style={s.card}>
+            <div style={{ textAlign: "center", padding: "12px 0" }}>
+              <div style={{ fontSize: 44, marginBottom: 12 }}>🛠️</div>
+              <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 10, color: C.text }}>Under Maintenance</div>
+              <div style={{ fontSize: 15, color: C.textMuted, lineHeight: 1.6 }}>{maintenance.message || "The check-in kiosk is temporarily unavailable. Please see the Discipline Office."}</div>
+            </div>
+          </div>
+        ) : (<>
         {step === "search" && (
           <div style={s.card}>
             <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 6, color: C.text }}>Find Student</div>
@@ -448,6 +472,7 @@ function Kiosk({ onStaffLogin }) {
         )}
 
         {step === "slip" && lastSlip && <SlipPreview slip={lastSlip} onDone={resetForm} />}
+        </>)}
       </div>
     </div>
   );
