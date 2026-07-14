@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import Users from "./Users";
+import PrintableSlip from "./PrintableSlip";
 
 const C = {
   primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
@@ -330,7 +331,10 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
             <div style={{ fontSize: 20, fontWeight: 800 }}>{slip.name}</div>
             <div style={{ fontSize: 13, color: C.textMuted }}>{slip.student_id} · {slip.grade_section}</div>
           </div>
-          <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 22, color: C.textLight, cursor: "pointer", lineHeight: 1 }}>×</button>
+          <div className="no-print" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => window.print()} style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🖨 Print</button>
+            <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 22, color: C.textLight, cursor: "pointer", lineHeight: 1 }}>×</button>
+          </div>
         </div>
 
         <div style={{ background: C.bg, borderRadius: 8, padding: "12px 14px", marginBottom: 16, fontSize: 13 }}>
@@ -413,6 +417,16 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
             </button>
           </div>
         )}
+
+        <PrintableSlip slip={{
+          name: slip.name, student_id: slip.student_id, grade_section: slip.grade_section,
+          date: slip.date, time_arrived: slip.time_arrived, teacher_name: slip.teacher_name,
+          nature: (slip.nature || []).join(", "), meridiem: slip.meridiem, reason: slip.reason,
+          sub_category: subCategory || slip.final_sub_category || slip.ai_sub_category,
+          status: status || slip.status,
+          document_required: slip.document_required, document_status: docStatus || slip.document_status,
+          document_deadline: slip.document_deadline, confirmed_by: slip.confirmed_by || profile?.full_name,
+        }} />
       </div>
     </div>
   );

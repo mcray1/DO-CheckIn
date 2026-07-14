@@ -3,6 +3,7 @@ import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import Login from "./Login";
 import Dashboard from "./Dashboard";
 import ChangePassword from "./ChangePassword";
+import PrintableSlip from "./PrintableSlip";
 
 const sbHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
@@ -168,6 +169,7 @@ function Field({ label, value, span }) {
 function SlipPreview({ slip, onDone }) {
   const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
   return (
+    <>
     <div style={{ background: C.card, borderRadius: 12, padding: "32px 36px", width: "100%", maxWidth: 480, boxShadow: "0 10px 30px rgba(15,23,42,0.1)", color: C.text, border: `1px solid ${C.border}` }}>
       <div style={{ textAlign: "center", marginBottom: 20, borderBottom: `2px solid ${C.primary}`, paddingBottom: 16 }}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: C.textMuted }}>ATENEO DE ILOILO – SMCS</div>
@@ -212,8 +214,20 @@ function SlipPreview({ slip, onDone }) {
         Signed: ________________________<br />
         <span style={{ fontWeight: 700 }}>Prefect of Discipline / Discipline Officer</span>
       </div>
-      <button onClick={onDone} style={{ width: "100%", background: C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>Done — Next Student</button>
+      <div className="no-print" style={{ display: "flex", gap: 10 }}>
+        <button onClick={() => window.print()} style={{ flex: 1, background: C.card, color: C.primary, border: `2px solid ${C.primary}`, borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>🖨 Print Slip</button>
+        <button onClick={onDone} style={{ flex: 2, background: C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "14px", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>Done — Next Student</button>
+      </div>
     </div>
+    <PrintableSlip slip={{
+      name: slip.name, student_id: slip.student_id, grade_section: slip.grade_section,
+      date: slip.date, time_arrived: slip.time_arrived, teacher_name: slip.teacher_name,
+      nature: slip.category_name, meridiem: slip.meridiem, reason: slip.reason,
+      sub_category: slip.ai_sub_category, status: slip.ai_status,
+      document_required: slip.document_required, document_status: slip.document_status,
+      document_deadline: slip.document_deadline, confirmed_by: null,
+    }} />
+    </>
   );
 }
 
