@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import Users from "./Users";
 import PrintableSlip from "./PrintableSlip";
+import Settings from "./Settings";
 
 const C = {
   primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
@@ -66,7 +67,9 @@ export default function Dashboard({ profile, onSignOut }) {
   const [search, setSearch] = useState("");
   const [selectedSlip, setSelectedSlip] = useState(null); // for confirm modal
   const [error, setError] = useState("");
-  const [view, setView] = useState("slips"); // slips | users
+  const [view, setView] = useState("slips"); // slips | users | settings
+  const [flagged, setFlagged] = useState({}); // student_id -> { category, cnt }
+  const [onlyRepeat, setOnlyRepeat] = useState(false);
   const isAdmin = ["pod_admin", "superadmin"].includes(profile?.role);
 
   async function loadSlips() {
@@ -83,6 +86,25 @@ export default function Dashboard({ profile, onSignOut }) {
 
   useEffect(() => { loadSlips(); }, []);
 
+  // Repeat-offender flagging: read the threshold, then the students who reach it
+  // in any single category. Non-critical — failures just leave nothing flagged.
+  async function loadFlags() {
+    try {
+      const headers = await authHeaders();
+      const tRes = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=eq.repeat_offender_threshold&select=value`, { headers });
+      const tData = tRes.ok ? await tRes.json() : [];
+      const threshold = Number(tData?.[0]?.value ?? 3) || 3;
+      const cRes = await fetch(`${SUPABASE_URL}/rest/v1/student_category_counts?cnt=gte.${threshold}&order=cnt.desc`, { headers });
+      const counts = cRes.ok ? await cRes.json() : [];
+      const map = {};
+      for (const row of counts) {
+        if (!map[row.student_id]) map[row.student_id] = { category: row.category, cnt: row.cnt };
+      }
+      setFlagged(map);
+    } catch { /* flagging is non-critical */ }
+  }
+  useEffect(() => { loadFlags(); }, []);
+
   const todayStr = today();
   const natures = [...new Set(slips.flatMap(s => s.nature || []))];
 
@@ -90,6 +112,7 @@ export default function Dashboard({ profile, onSignOut }) {
     if (filterStatus === "Pending" && s.status) return false;
     if (filterStatus !== "All" && filterStatus !== "Pending" && s.status !== filterStatus) return false;
     if (filterNature !== "All" && !(s.nature || []).includes(filterNature)) return false;
+    if (onlyRepeat && !flagged[s.student_id]) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!(s.name || "").toLowerCase().includes(q) && !(s.student_id || "").toLowerCase().includes(q)) return false;
@@ -129,6 +152,7 @@ export default function Dashboard({ profile, onSignOut }) {
             <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, marginLeft: 8 }}>
               <button onClick={() => setView("slips")} style={{ background: view === "slips" ? C.primary : C.card, color: view === "slips" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Slips</button>
               <button onClick={() => setView("users")} style={{ background: view === "users" ? C.primary : C.card, color: view === "users" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Users</button>
+              <button onClick={() => setView("settings")} style={{ background: view === "settings" ? C.primary : C.card, color: view === "settings" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Settings</button>
             </div>
           )}
         </div>
@@ -142,7 +166,7 @@ export default function Dashboard({ profile, onSignOut }) {
       </div>
 
       <div style={s.main}>
-        {view === "users" && isAdmin ? <Users profile={profile} /> : <>
+        {view === "users" && isAdmin ? <Users profile={profile} /> : view === "settings" && isAdmin ? <Settings onChanged={loadFlags} /> : <>
         {/* Stats */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div style={s.statCard(C.primary)}><div style={{ fontSize: 26, fontWeight: 800, color: C.primary }}>{stats.today}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Today</div></div>
@@ -177,6 +201,8 @@ export default function Dashboard({ profile, onSignOut }) {
             {["All", ...natures].map(f => (
               <button key={f} onClick={() => setFilterNature(f)} style={s.chip(filterNature === f)}>{f}</button>
             ))}
+            <button onClick={() => setOnlyRepeat(v => !v)} title="Show only students flagged as repeat offenders"
+              style={{ marginLeft: 8, background: onlyRepeat ? C.danger : C.bg, color: onlyRepeat ? "#fff" : C.danger, border: `1px solid ${onlyRepeat ? C.danger : C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>⚑ Repeat offenders</button>
           </div>
 
           {error && <div style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.danger, marginBottom: 12 }}>{error}</div>}
@@ -186,9 +212,9 @@ export default function Dashboard({ profile, onSignOut }) {
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>No slips match the current filters.</div>
           ) : viewMode === "table" ? (
-            <TableView slips={filtered} onOpen={setSelectedSlip} />
+            <TableView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} />
           ) : (
-            <CardView slips={filtered} onOpen={setSelectedSlip} />
+            <CardView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} />
           )}
         </div>
         </>}
@@ -213,7 +239,16 @@ function StatusPill({ status }) {
   return <span style={{ background: `${color}18`, color, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>{status}</span>;
 }
 
-function TableView({ slips, onOpen }) {
+function RepeatFlag({ info }) {
+  return (
+    <span title={`Repeat offender: ${info.cnt} ${info.category} slips`}
+      style={{ marginLeft: 6, background: "rgba(239,68,68,0.12)", color: C.danger, border: `1px solid ${C.danger}`, borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 800, whiteSpace: "nowrap", verticalAlign: "middle" }}>
+      ⚑ {info.cnt} {info.category}
+    </span>
+  );
+}
+
+function TableView({ slips, onOpen, flagged = {} }) {
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -229,7 +264,7 @@ function TableView({ slips, onOpen }) {
             <tr key={sl.id} style={{ borderBottom: `1px solid ${C.border}` }}>
               <td style={{ padding: "12px", color: C.primary, fontWeight: 700, whiteSpace: "nowrap" }}>{sl.time_arrived}</td>
               <td style={{ padding: "12px", color: C.textMuted, whiteSpace: "nowrap" }}>{sl.date}</td>
-              <td style={{ padding: "12px", fontWeight: 600, whiteSpace: "nowrap" }}>{sl.name}</td>
+              <td style={{ padding: "12px", fontWeight: 600, whiteSpace: "nowrap" }}>{sl.name}{flagged[sl.student_id] && <RepeatFlag info={flagged[sl.student_id]} />}</td>
               <td style={{ padding: "12px", color: C.textMuted, whiteSpace: "nowrap" }}>{sl.grade_section}</td>
               <td style={{ padding: "12px" }}>
                 {(sl.nature || []).map(n => <span key={n} style={{ background: C.primaryBg, color: C.primary, borderRadius: 4, padding: "2px 7px", fontSize: 11, fontWeight: 700, marginRight: 4 }}>{n}</span>)}
@@ -250,14 +285,14 @@ function TableView({ slips, onOpen }) {
   );
 }
 
-function CardView({ slips, onOpen }) {
+function CardView({ slips, onOpen, flagged = {} }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
       {slips.map(sl => (
         <div key={sl.id} style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, background: C.card, borderLeft: `4px solid ${sl.status ? (statusColors[sl.status] || C.textMuted) : C.warning}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{sl.name}</div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{sl.name}{flagged[sl.student_id] && <RepeatFlag info={flagged[sl.student_id]} />}</div>
               <div style={{ fontSize: 12, color: C.textMuted }}>{sl.student_id} · {sl.grade_section}</div>
             </div>
             <StatusPill status={sl.status} />
