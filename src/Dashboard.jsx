@@ -44,6 +44,18 @@ async function updateSlip(id, patch) {
   return res.json();
 }
 
+// Fire the teacher email for a slip. Returns { ok, error?/reason? } and never throws
+// on an HTTP error (so a failed email can't block a confirmed slip).
+async function sendNotification(slipId) {
+  const headers = await authHeaders();
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/send-notification`, {
+    method: "POST", headers, body: JSON.stringify({ slip_id: slipId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: data.error || `Request failed (${res.status})` };
+  return data; // { ok: true } | { ok: false, reason }
+}
+
 export default function Dashboard({ profile, onSignOut }) {
   const [slips, setSlips] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -270,10 +282,12 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
   const [docStatus, setDocStatus] = useState(slip.document_status || "Not Required");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [notifyWarning, setNotifyWarning] = useState("");
+  const [savedUpdated, setSavedUpdated] = useState(null);
 
   async function handleConfirm() {
     if (!status) { setErr("Please select a final status."); return; }
-    setSaving(true); setErr("");
+    setSaving(true); setErr(""); setNotifyWarning("");
     try {
       const patch = {
         final_sub_category: subCategory || null,
@@ -282,9 +296,24 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
         confirmed_by: profile?.full_name || profile?.email,
         confirmed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        // notification_sent stays false — Phase 3 will flip it after actually sending
       };
       const [updated] = await updateSlip(slip.id, patch);
+
+      // Email the teacher on first confirmation (skip if no email or already sent).
+      if (slip.teacher_email && !slip.notification_sent) {
+        let notify;
+        try { notify = await sendNotification(slip.id); }
+        catch (e) { notify = { ok: false, error: e.message }; }
+        if (notify.ok) {
+          onSaved({ ...updated, notification_sent: true, notification_sent_at: new Date().toISOString() });
+          return;
+        }
+        // Save succeeded but the email didn't — keep the modal open with a warning
+        // rather than losing the confirmation.
+        setSavedUpdated(updated);
+        setNotifyWarning(notify.error || notify.reason || "The email could not be sent.");
+        return;
+      }
       onSaved(updated);
     } catch (e) {
       setErr("Could not save: " + e.message);
@@ -352,16 +381,38 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
 
         {err && <div style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.danger, marginBottom: 12 }}>{err}</div>}
 
-        <div style={{ background: C.primaryBg, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.text, marginBottom: 16 }}>
-          ℹ️ Confirming will notify the teacher via email and Teams (activates in Phase 3).
-        </div>
+        {slip.notification_sent ? (
+          <div style={{ background: "rgba(16,185,129,0.1)", border: `1px solid ${C.success}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.text, marginBottom: 16 }}>
+            ✓ Teacher already notified{slip.notification_sent_at ? ` on ${new Date(slip.notification_sent_at).toLocaleString()}` : ""}.
+          </div>
+        ) : slip.teacher_email ? (
+          <div style={{ background: C.primaryBg, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.text, marginBottom: 16 }}>
+            ℹ️ Confirming will email <strong>{slip.teacher_name || slip.teacher_email}</strong> at {slip.teacher_email}.
+          </div>
+        ) : (
+          <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+            No teacher email on file — the slip will be confirmed without a notification.
+          </div>
+        )}
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onClose} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
-          <button onClick={handleConfirm} disabled={saving} style={{ flex: 2, background: saving ? C.textLight : C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}>
-            {saving ? "Saving..." : slip.status ? "Update Slip" : "Confirm Slip"}
-          </button>
-        </div>
+        {notifyWarning && (
+          <div style={{ background: "rgba(245,158,11,0.1)", border: `1px solid ${C.warning}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.text, marginBottom: 12 }}>
+            ✅ Slip confirmed — but the teacher email didn’t go through:<br />
+            <span style={{ color: C.danger }}>{notifyWarning}</span><br />
+            <span style={{ color: C.textMuted, fontSize: 12 }}>It’s been logged. Re-open this slip and confirm again to retry.</span>
+          </div>
+        )}
+
+        {notifyWarning ? (
+          <button onClick={() => onSaved(savedUpdated)} style={{ width: "100%", background: C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Close</button>
+        ) : (
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={onClose} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+            <button onClick={handleConfirm} disabled={saving} style={{ flex: 2, background: saving ? C.textLight : C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}>
+              {saving ? "Saving..." : slip.status ? "Update Slip" : "Confirm Slip"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
