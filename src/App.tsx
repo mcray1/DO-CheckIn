@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import Login from "./Login";
 import Dashboard from "./Dashboard";
+import ChangePassword from "./ChangePassword";
 
 const sbHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
@@ -444,6 +445,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
   const inactivityTimer = useRef(null);
 
   // Load session on mount and subscribe to changes
@@ -455,6 +457,7 @@ export default function App() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, sess) => {
       setSession(sess);
       if (!sess) { setProfile(null); setShowLogin(false); }
+      else { setAuthMessage(""); }
     });
     return () => listener.subscription.unsubscribe();
   }, []);
@@ -463,7 +466,16 @@ export default function App() {
   useEffect(() => {
     if (!session) { setProfile(null); return; }
     supabase.from("profiles").select("*").eq("id", session.user.id).single()
-      .then(({ data }) => setProfile(data));
+      .then(({ data }) => {
+        // Deactivated accounts are signed out immediately with a notice.
+        if (data && data.is_active === false) {
+          setProfile(null);
+          setAuthMessage("Your account has been deactivated. Please contact an administrator.");
+          supabase.auth.signOut();
+        } else {
+          setProfile(data);
+        }
+      });
   }, [session]);
 
   // Inactivity auto-logout
@@ -492,14 +504,19 @@ export default function App() {
     return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', system-ui, sans-serif", color: C.textMuted }}>Loading...</div>;
   }
 
-  // Logged in → dashboard
+  // Logged in
   if (session && profile) {
+    // Force a password change on first login before anything else.
+    if (profile.must_change_password) {
+      return <ChangePassword profile={profile} onSignOut={handleSignOut}
+        onDone={() => setProfile(p => ({ ...p, must_change_password: false }))} />;
+    }
     return <Dashboard profile={profile} onSignOut={handleSignOut} />;
   }
 
-  // Login screen
-  if (showLogin) {
-    return <Login onBack={() => setShowLogin(false)} />;
+  // Login screen (also shown when there's an auth message, e.g. deactivated)
+  if (showLogin || authMessage) {
+    return <Login message={authMessage} onBack={() => { setShowLogin(false); setAuthMessage(""); }} />;
   }
 
   // Default → public kiosk

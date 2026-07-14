@@ -4,12 +4,12 @@ import { supabase } from "./supabaseClient";
 const C = {
   primary: "#1e40af", primaryBg: "#dbeafe", bg: "#f1f5f9",
   card: "#ffffff", text: "#1e293b", textMuted: "#64748b",
-  textLight: "#94a3b8", border: "#e2e8f0", danger: "#ef4444",
+  textLight: "#94a3b8", border: "#e2e8f0", danger: "#ef4444", warning: "#f59e0b",
 };
 
 const ALLOWED_DOMAIN = "@adi.edu.ph";
 
-export default function Login({ onBack }) {
+export default function Login({ onBack, message }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -53,6 +53,12 @@ export default function Login({ onBack }) {
           <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>Staff Login</div>
           <div style={{ fontSize: 13, color: C.textMuted, marginTop: 4 }}>Discipline Office — Admission Slip System</div>
         </div>
+
+        {message && (
+          <div style={{ background: "rgba(245,158,11,0.1)", border: `1px solid ${C.warning}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.text, marginBottom: 16 }}>
+            {message}
+          </div>
+        )}
 
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6, display: "block" }}>School Email</label>

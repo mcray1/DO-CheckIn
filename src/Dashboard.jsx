@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
+import Users from "./Users";
 
 const C = {
   primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
@@ -52,6 +53,8 @@ export default function Dashboard({ profile, onSignOut }) {
   const [search, setSearch] = useState("");
   const [selectedSlip, setSelectedSlip] = useState(null); // for confirm modal
   const [error, setError] = useState("");
+  const [view, setView] = useState("slips"); // slips | users
+  const isAdmin = ["pod_admin", "superadmin"].includes(profile?.role);
 
   async function loadSlips() {
     setLoading(true); setError("");
@@ -109,6 +112,12 @@ export default function Dashboard({ profile, onSignOut }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={s.badge}>POD</span>
           <span style={{ fontSize: 18, fontWeight: 700 }}>POD Dashboard</span>
+          {isAdmin && (
+            <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, marginLeft: 8 }}>
+              <button onClick={() => setView("slips")} style={{ background: view === "slips" ? C.primary : C.card, color: view === "slips" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Slips</button>
+              <button onClick={() => setView("users")} style={{ background: view === "users" ? C.primary : C.card, color: view === "users" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Users</button>
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ textAlign: "right" }}>
@@ -120,6 +129,7 @@ export default function Dashboard({ profile, onSignOut }) {
       </div>
 
       <div style={s.main}>
+        {view === "users" && isAdmin ? <Users profile={profile} /> : <>
         {/* Stats */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div style={s.statCard(C.primary)}><div style={{ fontSize: 26, fontWeight: 800, color: C.primary }}>{stats.today}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Today</div></div>
@@ -168,6 +178,7 @@ export default function Dashboard({ profile, onSignOut }) {
             <CardView slips={filtered} onOpen={setSelectedSlip} />
           )}
         </div>
+        </>}
       </div>
 
       {/* Confirm Modal */}
