@@ -4,8 +4,11 @@
 -- seeded to match the pre-existing behavior, so applying this changes nothing until
 -- a superadmin toggles something.
 
+-- role is plain text here (profiles.role is text in this project; there is no
+-- user_role enum). get_my_role() likewise returns text, so the ::text casts below
+-- are harmless no-ops kept for safety.
 create table if not exists role_permissions (
-  role user_role not null,
+  role text not null,
   permission text not null,
   primary key (role, permission)
 );
