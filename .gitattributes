@@ -1,0 +1,27 @@
+# Normalize line endings: store everything text as LF in the repo, so commits
+# from Windows checkouts stop producing LF->CRLF warnings and diffs stay clean.
+* text=auto eol=lf
+
+# Explicit LF for the project's text files (defensive; covered by the rule above).
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.md   text eol=lf
+*.sql  text eol=lf
+*.svg  text eol=lf
+
+# PowerShell is happiest with CRLF.
+*.ps1  text eol=crlf
+
+# Binary assets: never touch line endings.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff  binary
+*.woff2 binary
