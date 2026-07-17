@@ -1,6 +1,14 @@
 // Supabase Edge Function: send-notification
 // Sends a POD admission slip notification email to a teacher via Gmail API,
 // authenticated as pod@adi.edu.ph using a service account with domain-wide delegation.
+//
+// Security model (mirrors manage-users):
+//   * Runs with the service-role key, so it can read any slip and send mail.
+//     Because the anon key is public, the caller MUST be authenticated and
+//     authorised INSIDE the function — never trust that only staff can reach it.
+//   * The caller is identified via getUser() and must be an active staff profile
+//     (pod_staff / pod_admin / superadmin). Without this check, anyone with the
+//     public anon key could send attacker-controlled email from pod@adi.edu.ph.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -9,12 +17,37 @@ const GMAIL_PRIVATE_KEY = Deno.env.get("GMAIL_PRIVATE_KEY")!.replace(/\\n/g, "\n
 const POD_SENDER_EMAIL = Deno.env.get("POD_SENDER_EMAIL")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+const STAFF_ROLES = new Set(["pod_staff", "pod_admin", "superadmin"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+// Escape a value for safe interpolation into HTML.
+function esc(v: unknown): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Strip CR/LF so a slip field can't inject extra email headers.
+function headerSafe(v: unknown): string {
+  return String(v ?? "").replace(/[\r\n]+/g, " ").trim();
+}
 
 // ── Build a signed JWT for Google OAuth (service account + delegation) ──
 async function getAccessToken(): Promise<string> {
@@ -75,8 +108,8 @@ async function getAccessToken(): Promise<string> {
 function buildRawEmail(to: string, subject: string, htmlBody: string): string {
   const message = [
     `From: Ateneo de Iloilo Discipline Office <${POD_SENDER_EMAIL}>`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
+    `To: ${headerSafe(to)}`,
+    `Subject: ${headerSafe(subject)}`,
     "MIME-Version: 1.0",
     'Content-Type: text/html; charset="UTF-8"',
     "",
@@ -89,8 +122,30 @@ function buildRawEmail(to: string, subject: string, htmlBody: string): string {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  // ── Authenticate + authorise the caller ──
+  const authHeader = req.headers.get("Authorization") || "";
+  if (!authHeader) return json({ ok: false, error: "Missing Authorization header" }, 401);
+
+  const callerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false },
+  });
+  const { data: userData, error: userErr } = await callerClient.auth.getUser();
+  if (userErr || !userData?.user) return json({ ok: false, error: "Invalid session" }, 401);
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+
+  const { data: caller, error: cErr } = await supabase
+    .from("profiles").select("role, is_active").eq("id", userData.user.id).single();
+  if (cErr || !caller) return json({ ok: false, error: "Profile not found" }, 403);
+  if (!caller.is_active) return json({ ok: false, error: "Your account is inactive" }, 403);
+  if (!STAFF_ROLES.has(caller.role)) return json({ ok: false, error: "Not authorized" }, 403);
+
+  let logRow: { id: number } | null = null;
 
   try {
     const { slip_id } = await req.json();
@@ -102,8 +157,12 @@ Deno.serve(async (req) => {
     if (slipErr || !slip) throw new Error("Slip not found");
 
     if (!slip.teacher_email) {
-      return new Response(JSON.stringify({ ok: false, reason: "No teacher email on slip" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return json({ ok: false, reason: "No teacher email on slip" });
+    }
+
+    // Server-side guard: never resend a notification that already went out.
+    if (slip.notification_sent) {
+      return json({ ok: true, reason: "Already notified" });
     }
 
     const subject = `POD Notice — ${slip.name} | ${(slip.nature || []).join(", ")} | ${slip.date} ${slip.time_arrived}`;
@@ -115,14 +174,14 @@ Deno.serve(async (req) => {
         </div>
         <p>A student from your class has reported to the Discipline Office.</p>
         <table style="font-size:14px; line-height:1.8;">
-          <tr><td style="color:#64748b;">Student:</td><td><strong>${slip.name}</strong></td></tr>
-          <tr><td style="color:#64748b;">ID:</td><td>${slip.student_id}</td></tr>
-          <tr><td style="color:#64748b;">Grade/Section:</td><td>${slip.grade_section || "—"}</td></tr>
-          <tr><td style="color:#64748b;">Nature:</td><td>${(slip.nature || []).join(", ")} ${slip.meridiem || ""}</td></tr>
-          <tr><td style="color:#64748b;">Time Arrived:</td><td>${slip.time_arrived}</td></tr>
-          <tr><td style="color:#64748b;">Reason:</td><td>${slip.reason || "—"}</td></tr>
-          <tr><td style="color:#64748b;">Status:</td><td><strong>${slip.status || "Pending"}</strong></td></tr>
-          <tr><td style="color:#64748b;">Confirmed by:</td><td>${slip.confirmed_by || "—"}</td></tr>
+          <tr><td style="color:#64748b;">Student:</td><td><strong>${esc(slip.name)}</strong></td></tr>
+          <tr><td style="color:#64748b;">ID:</td><td>${esc(slip.student_id)}</td></tr>
+          <tr><td style="color:#64748b;">Grade/Section:</td><td>${esc(slip.grade_section || "—")}</td></tr>
+          <tr><td style="color:#64748b;">Nature:</td><td>${esc((slip.nature || []).join(", "))} ${esc(slip.meridiem || "")}</td></tr>
+          <tr><td style="color:#64748b;">Time Arrived:</td><td>${esc(slip.time_arrived)}</td></tr>
+          <tr><td style="color:#64748b;">Reason:</td><td>${esc(slip.reason || "—")}</td></tr>
+          <tr><td style="color:#64748b;">Status:</td><td><strong>${esc(slip.status || "Pending")}</strong></td></tr>
+          <tr><td style="color:#64748b;">Confirmed by:</td><td>${esc(slip.confirmed_by || "—")}</td></tr>
         </table>
         <p style="font-size:12px; color:#94a3b8; margin-top:16px;">
           This is an automated notification from the Ateneo de Iloilo Discipline Office.
@@ -130,10 +189,11 @@ Deno.serve(async (req) => {
       </div>`;
 
     // Log attempt
-    const { data: logRow } = await supabase.from("notification_log").insert({
+    const { data: inserted } = await supabase.from("notification_log").insert({
       slip_id, channel: "email", recipient_email: slip.teacher_email,
       subject, status: "pending", attempts: 1,
     }).select().single();
+    logRow = inserted;
 
     // Send via Gmail
     const token = await getAccessToken();
@@ -150,9 +210,6 @@ Deno.serve(async (req) => {
 
     if (!gmailRes.ok) {
       const errText = await gmailRes.text();
-      if (logRow) await supabase.from("notification_log").update({
-        status: "failed", error_message: errText,
-      }).eq("id", logRow.id);
       throw new Error("Gmail send failed: " + errText);
     }
 
@@ -165,11 +222,14 @@ Deno.serve(async (req) => {
       notification_sent: true, notification_sent_at: new Date().toISOString(),
     }).eq("id", slip_id);
 
-    return new Response(JSON.stringify({ ok: true }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return json({ ok: true });
 
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: String(e) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const message = String((e as Error)?.message || e);
+    // Never leave a pending log row dangling on failure.
+    if (logRow) await supabase.from("notification_log").update({
+      status: "failed", error_message: message,
+    }).eq("id", logRow.id);
+    return json({ ok: false, error: message }, 500);
   }
 });

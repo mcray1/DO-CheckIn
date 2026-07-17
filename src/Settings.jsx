@@ -22,10 +22,12 @@ async function authHeaders() {
 // flagging after the threshold is saved.
 export default function Settings({ onChanged }) {
   const [threshold, setThreshold] = useState(3);
+  const [startMonth, setStartMonth] = useState(6);
   const [maintenanceOn, setMaintenanceOn] = useState(false);
   const [maintenanceMsg, setMaintenanceMsg] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingThreshold, setSavingThreshold] = useState(false);
+  const [savingStartMonth, setSavingStartMonth] = useState(false);
   const [savingMaint, setSavingMaint] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -39,6 +41,7 @@ export default function Settings({ onChanged }) {
       const map = {};
       for (const r of rows) map[r.key] = r.value;
       if (map.repeat_offender_threshold != null) setThreshold(Number(map.repeat_offender_threshold) || 3);
+      if (map.school_year_start_month != null) setStartMonth(Number(map.school_year_start_month) || 6);
       setMaintenanceOn(map.maintenance_mode === true);
       setMaintenanceMsg(typeof map.maintenance_message === "string" ? map.maintenance_message : "");
     } catch (e) {
@@ -76,6 +79,20 @@ export default function Settings({ onChanged }) {
     }
   }
 
+  async function saveStartMonth(val) {
+    setSavingStartMonth(true); setError("");
+    try {
+      await saveSetting("school_year_start_month", val);
+      setStartMonth(val);
+      flash("School-year start month saved. Repeat-offender counts now reset from this month.");
+      if (onChanged) onChanged();
+    } catch (e) {
+      setError("Could not save (admins only): " + e.message);
+    } finally {
+      setSavingStartMonth(false);
+    }
+  }
+
   async function saveMaintenance(nextOn) {
     setSavingMaint(true); setError("");
     try {
@@ -89,6 +106,8 @@ export default function Settings({ onChanged }) {
       setSavingMaint(false);
     }
   }
+
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
   const panel = { background: C.card, borderRadius: 12, border: `1px solid ${C.border}`, padding: 24, boxShadow: "0 4px 20px rgba(15,23,42,0.04)", maxWidth: 560 };
   const label = { fontSize: 12, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6, display: "block" };
@@ -116,6 +135,22 @@ export default function Settings({ onChanged }) {
             style={{ background: savingThreshold ? C.textLight : C.primary, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 14, fontWeight: 700, cursor: savingThreshold || loading ? "not-allowed" : "pointer" }}>
             {savingThreshold ? "Saving..." : "Save"}
           </button>
+        </div>
+      </div>
+
+      {/* School-year start month */}
+      <div style={section}>
+        <label style={label}>School-year start month</label>
+        <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 10, lineHeight: 1.5 }}>
+          The month your school year begins. Repeat-offender counts reset at the start of each school year, so a student flagged last year starts fresh.
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <select value={startMonth} disabled={loading}
+            onChange={e => saveStartMonth(Number(e.target.value))}
+            style={{ width: 180, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 15, outline: "none", boxSizing: "border-box", background: C.card, cursor: savingStartMonth || loading ? "not-allowed" : "pointer" }}>
+            {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </select>
+          {savingStartMonth && <span style={{ fontSize: 13, color: C.textMuted }}>Saving...</span>}
         </div>
       </div>
 

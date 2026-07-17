@@ -18,6 +18,14 @@ function today() {
   return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+// Current school-year label, matching school_year_of() in the 20260717 migration.
+// startMonth is the admin-configured settings.school_year_start_month (default 6).
+function currentSchoolYear(startMonth = 6) {
+  const d = new Date();
+  const y = d.getFullYear();
+  return d.getMonth() + 1 >= startMonth ? `${y}-${y + 1}` : `${y - 1}-${y}`;
+}
+
 async function authHeaders() {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -91,10 +99,14 @@ export default function Dashboard({ profile, onSignOut }) {
   async function loadFlags() {
     try {
       const headers = await authHeaders();
-      const tRes = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=eq.repeat_offender_threshold&select=value`, { headers });
-      const tData = tRes.ok ? await tRes.json() : [];
-      const threshold = Number(tData?.[0]?.value ?? 3) || 3;
-      const cRes = await fetch(`${SUPABASE_URL}/rest/v1/student_category_counts?cnt=gte.${threshold}&order=cnt.desc`, { headers });
+      const tRes = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=in.(repeat_offender_threshold,school_year_start_month)&select=key,value`, { headers });
+      const sRows = tRes.ok ? await tRes.json() : [];
+      const cfg = {};
+      for (const r of sRows) cfg[r.key] = r.value;
+      const threshold = Number(cfg.repeat_offender_threshold ?? 3) || 3;
+      const startMonth = Number(cfg.school_year_start_month ?? 6) || 6;
+      const sy = currentSchoolYear(startMonth);
+      const cRes = await fetch(`${SUPABASE_URL}/rest/v1/student_category_counts?school_year=eq.${sy}&cnt=gte.${threshold}&order=cnt.desc`, { headers });
       const counts = cRes.ok ? await cRes.json() : [];
       const map = {};
       for (const row of counts) {
