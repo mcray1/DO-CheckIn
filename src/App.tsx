@@ -14,6 +14,12 @@ const C = {
   success: "#10b981", warning: "#f59e0b", danger: "#ef4444",
 };
 
+// Ateneo de Iloilo brand accents (kiosk chrome) + the school seal.
+// Seal is served from public/ — BASE_URL keeps it correct under the /pod/ subpath.
+const NAVY = "#12315B";
+const GOLD = "#C8A24B";
+const SEAL_SRC = import.meta.env.BASE_URL + "seal.png";
+
 const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
 
 function getToday() {
@@ -322,7 +328,7 @@ function Kiosk({ onStaffLogin }) {
   const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
   const s = {
     root: { minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", display: "flex", flexDirection: "column", color: C.text },
-    header: { background: C.card, borderBottom: `2px solid ${C.primary}`, padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 },
+    header: { background: NAVY, borderBottom: `3px solid ${GOLD}`, padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, color: "#fff" },
     badge: { background: C.primary, color: "#fff", fontWeight: 800, fontSize: 13, padding: "3px 10px", borderRadius: 4, letterSpacing: 1, textTransform: "uppercase" },
     main: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 16px" },
     card: { background: C.card, borderRadius: 16, padding: "36px 40px", width: "100%", maxWidth: 580, boxShadow: "0 10px 40px rgba(15,23,42,0.08)", border: `1px solid ${C.border}` },
@@ -334,14 +340,18 @@ function Kiosk({ onStaffLogin }) {
   return (
     <div style={s.root}>
       <div style={s.header}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={s.badge}>POD</span>
-          <span style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Admission Slip — Discipline Office</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <img src={SEAL_SRC} alt="Ateneo de Iloilo seal" onError={e => { e.currentTarget.style.display = "none"; }}
+            style={{ width: 48, height: 48, objectFit: "contain", flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", lineHeight: 1.15 }}>Ateneo de Iloilo – SMCS</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: GOLD, letterSpacing: 0.4 }}>Discipline Office · Admission Slip Kiosk</div>
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, color: C.textMuted }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 14, color: "rgba(255,255,255,0.85)" }}>
           <span>📅 {getToday()}</span>
           <span>🕐 <Clock /></span>
-          <button onClick={onStaffLogin} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 14px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Staff Login</button>
+          <button onClick={onStaffLogin} style={{ background: "transparent", border: `1.5px solid ${GOLD}`, color: GOLD, borderRadius: 8, padding: "9px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Staff Login</button>
         </div>
       </div>
 
@@ -356,21 +366,26 @@ function Kiosk({ onStaffLogin }) {
           </div>
         ) : (<>
         {step === "search" && (
-          <div style={s.card}>
-            <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 6, color: C.text }}>Find Student</div>
-            <div style={{ fontSize: 14, color: C.textMuted, marginBottom: 28 }}>Search by name or Student ID number.</div>
-            <SearchBox placeholder="Type name or Student ID..." searchFn={searchStudents} autoFocus
-              onSelect={st => { setSelectedStudent(st); setStep("form"); }}
-              renderItem={item => (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div>
-                    <div style={{ fontWeight: 600, color: C.text }}>{item.name}</div>
-                    <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{item.grade_section}</div>
+          <div style={{ ...s.card, textAlign: "center", paddingTop: 44, paddingBottom: 44 }}>
+            <img src={SEAL_SRC} alt="Ateneo de Iloilo seal" onError={e => { e.currentTarget.style.display = "none"; }}
+              style={{ width: 112, height: 112, objectFit: "contain", margin: "0 auto 18px" }} />
+            <div style={{ fontSize: 13, fontWeight: 700, color: GOLD, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>Ateneo de Iloilo – SMCS</div>
+            <div style={{ fontSize: 30, fontWeight: 800, marginBottom: 6, color: NAVY }}>Welcome</div>
+            <div style={{ fontSize: 15, color: C.textMuted, marginBottom: 28 }}>Search your name or Student ID to begin.</div>
+            <div style={{ textAlign: "left" }}>
+              <SearchBox placeholder="Type your name or Student ID..." searchFn={searchStudents} autoFocus
+                onSelect={st => { setSelectedStudent(st); setStep("form"); }}
+                renderItem={item => (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: C.text }}>{item.name}</div>
+                      <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{item.grade_section}</div>
+                    </div>
+                    <span style={{ fontSize: 13, color: C.textMuted, fontFamily: "monospace" }}>{item.student_id}</span>
                   </div>
-                  <span style={{ fontSize: 13, color: C.textMuted, fontFamily: "monospace" }}>{item.student_id}</span>
-                </div>
-              )} />
-            {dataLoading && <div style={{ marginTop: 16, fontSize: 13, color: C.textLight }}>Loading categories...</div>}
+                )} />
+            </div>
+            {dataLoading && <div style={{ marginTop: 16, fontSize: 13, color: C.textLight }}>Loading...</div>}
           </div>
         )}
 
