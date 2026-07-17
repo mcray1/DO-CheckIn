@@ -18,8 +18,13 @@ values ('school_year_start_month', '6'::jsonb)
 on conflict (key) do nothing;
 
 -- Derive the school-year label for a timestamp given the SY start month.
+-- admission_slips.created_at is `timestamp without time zone`, and Postgres does
+-- NOT implicitly cast timestamp -> timestamptz during function resolution, so the
+-- parameter must be plain `timestamp`. Drop any earlier timestamptz overloads.
 drop function if exists public.school_year_of(timestamptz);
-create or replace function public.school_year_of(ts timestamptz, start_month int)
+drop function if exists public.school_year_of(timestamptz, int);
+drop function if exists public.school_year_of(timestamp, int);
+create function public.school_year_of(ts timestamp, start_month int)
 returns text
 language sql
 immutable
