@@ -68,6 +68,15 @@ Deno.serve(async (req) => {
   const callerRank = RANK[caller.role] ?? -1;
   if (callerRank < RANK.pod_admin) return json({ error: "Not authorized" }, 403);
 
+  // Honor the permission matrix: superadmin implicitly may manage users; any other
+  // role needs an explicit (role, 'manage_users') grant in role_permissions.
+  if (caller.role !== "superadmin") {
+    const { data: perm } = await admin
+      .from("role_permissions").select("permission")
+      .eq("role", caller.role).eq("permission", "manage_users").maybeSingle();
+    if (!perm) return json({ error: "Your role does not have permission to manage users" }, 403);
+  }
+
   const canManageRole = (role: string) => {
     const r = RANK[role];
     return r !== undefined && r < callerRank;

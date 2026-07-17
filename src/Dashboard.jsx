@@ -4,6 +4,7 @@ import Users from "./Users";
 import PrintableSlip from "./PrintableSlip";
 import Settings from "./Settings";
 import Categories from "./Categories";
+import Roles from "./Roles";
 
 const C = {
   primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
@@ -79,7 +80,10 @@ export default function Dashboard({ profile, onSignOut }) {
   const [view, setView] = useState("slips"); // slips | users | settings
   const [flagged, setFlagged] = useState({}); // student_id -> { category, cnt }
   const [onlyRepeat, setOnlyRepeat] = useState(false);
-  const isAdmin = ["pod_admin", "superadmin"].includes(profile?.role);
+  const [perms, setPerms] = useState([]); // effective permissions from my_permissions()
+  const can = (p) => perms.includes(p);
+  const isSuperadmin = profile?.role === "superadmin";
+  const showTabs = isSuperadmin || can("manage_categories") || can("manage_users") || can("manage_settings");
 
   async function loadSlips() {
     setLoading(true); setError("");
@@ -117,6 +121,11 @@ export default function Dashboard({ profile, onSignOut }) {
     } catch { /* flagging is non-critical */ }
   }
   useEffect(() => { loadFlags(); }, []);
+
+  // Effective permissions for tab/action gating (RLS is the real enforcement).
+  useEffect(() => {
+    supabase.rpc("my_permissions").then(({ data }) => setPerms(Array.isArray(data) ? data : []));
+  }, []);
 
   const todayStr = today();
   const natures = [...new Set(slips.flatMap(s => s.nature || []))];
@@ -161,12 +170,17 @@ export default function Dashboard({ profile, onSignOut }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={s.badge}>POD</span>
           <span style={{ fontSize: 18, fontWeight: 700 }}>POD Dashboard</span>
-          {isAdmin && (
+          {showTabs && (
             <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, marginLeft: 8 }}>
-              <button onClick={() => setView("slips")} style={{ background: view === "slips" ? C.primary : C.card, color: view === "slips" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Slips</button>
-              <button onClick={() => setView("categories")} style={{ background: view === "categories" ? C.primary : C.card, color: view === "categories" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Categories</button>
-              <button onClick={() => setView("users")} style={{ background: view === "users" ? C.primary : C.card, color: view === "users" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Users</button>
-              <button onClick={() => setView("settings")} style={{ background: view === "settings" ? C.primary : C.card, color: view === "settings" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Settings</button>
+              {[
+                ["slips", "Slips", true],
+                ["categories", "Categories", can("manage_categories")],
+                ["users", "Users", can("manage_users")],
+                ["settings", "Settings", can("manage_settings")],
+                ["roles", "Roles", isSuperadmin],
+              ].filter(([, , show]) => show).map(([id, label]) => (
+                <button key={id} onClick={() => setView(id)} style={{ background: view === id ? C.primary : C.card, color: view === id ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{label}</button>
+              ))}
             </div>
           )}
         </div>
@@ -180,7 +194,7 @@ export default function Dashboard({ profile, onSignOut }) {
       </div>
 
       <div style={s.main}>
-        {view === "categories" && isAdmin ? <Categories /> : view === "users" && isAdmin ? <Users profile={profile} /> : view === "settings" && isAdmin ? <Settings onChanged={loadFlags} /> : <>
+        {view === "categories" && can("manage_categories") ? <Categories /> : view === "users" && can("manage_users") ? <Users profile={profile} /> : view === "settings" && can("manage_settings") ? <Settings onChanged={loadFlags} /> : view === "roles" && isSuperadmin ? <Roles /> : <>
         {/* Stats */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div style={s.statCard(C.primary)}><div style={{ fontSize: 26, fontWeight: 800, color: C.primary }}>{stats.today}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Today</div></div>
@@ -226,9 +240,9 @@ export default function Dashboard({ profile, onSignOut }) {
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>No slips match the current filters.</div>
           ) : viewMode === "table" ? (
-            <TableView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} />
+            <TableView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} canConfirm={can("confirm_slips")} />
           ) : (
-            <CardView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} />
+            <CardView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} canConfirm={can("confirm_slips")} />
           )}
         </div>
         </>}
@@ -262,7 +276,7 @@ function RepeatFlag({ info }) {
   );
 }
 
-function TableView({ slips, onOpen, flagged = {} }) {
+function TableView({ slips, onOpen, flagged = {}, canConfirm = true }) {
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -287,9 +301,11 @@ function TableView({ slips, onOpen, flagged = {} }) {
               <td style={{ padding: "12px", fontSize: 12, color: C.textMuted }}>{sl.ai_sub_category ? `${sl.ai_sub_category} · ${sl.ai_status}` : "—"}</td>
               <td style={{ padding: "12px" }}><StatusPill status={sl.status} /></td>
               <td style={{ padding: "12px" }}>
-                <button onClick={() => onOpen(sl)} style={{ background: sl.status ? C.bg : C.primary, color: sl.status ? C.textMuted : "#fff", border: sl.status ? `1px solid ${C.border}` : "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  {sl.status ? "Review" : "Confirm"}
-                </button>
+                {canConfirm ? (
+                  <button onClick={() => onOpen(sl)} style={{ background: sl.status ? C.bg : C.primary, color: sl.status ? C.textMuted : "#fff", border: sl.status ? `1px solid ${C.border}` : "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    {sl.status ? "Review" : "Confirm"}
+                  </button>
+                ) : <span style={{ color: C.textLight, fontSize: 12 }}>—</span>}
               </td>
             </tr>
           ))}
@@ -299,7 +315,7 @@ function TableView({ slips, onOpen, flagged = {} }) {
   );
 }
 
-function CardView({ slips, onOpen, flagged = {} }) {
+function CardView({ slips, onOpen, flagged = {}, canConfirm = true }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
       {slips.map(sl => (
@@ -317,9 +333,11 @@ function CardView({ slips, onOpen, flagged = {} }) {
           </div>
           {sl.reason && <div style={{ fontSize: 13, color: C.textMuted, fontStyle: "italic", marginBottom: 8, lineHeight: 1.4 }}>"{sl.reason}"</div>}
           {sl.ai_sub_category && <div style={{ fontSize: 12, color: C.textLight, marginBottom: 10 }}>🤖 Suggested: {sl.ai_sub_category} · {sl.ai_status}</div>}
-          <button onClick={() => onOpen(sl)} style={{ width: "100%", background: sl.status ? C.bg : C.primary, color: sl.status ? C.textMuted : "#fff", border: sl.status ? `1px solid ${C.border}` : "none", borderRadius: 8, padding: "9px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-            {sl.status ? "Review / Edit" : "Confirm Slip"}
-          </button>
+          {canConfirm ? (
+            <button onClick={() => onOpen(sl)} style={{ width: "100%", background: sl.status ? C.bg : C.primary, color: sl.status ? C.textMuted : "#fff", border: sl.status ? `1px solid ${C.border}` : "none", borderRadius: 8, padding: "9px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              {sl.status ? "Review / Edit" : "Confirm Slip"}
+            </button>
+          ) : <div style={{ textAlign: "center", fontSize: 12, color: C.textLight, padding: "6px 0" }}>View only</div>}
         </div>
       ))}
     </div>
