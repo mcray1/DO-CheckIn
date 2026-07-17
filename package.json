@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "deploy:zip": "pwsh -NoProfile -File ./deploy-build.ps1"
+    "deploy:zip": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./deploy-build.ps1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
