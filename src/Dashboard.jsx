@@ -45,6 +45,14 @@ async function fetchSlips() {
   return res.json();
 }
 
+// Active sub-categories, used to populate the confirm modal's sub-category dropdown.
+async function fetchSubCategories() {
+  const headers = await authHeaders();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/sub_categories?is_active=eq.true&order=sort_order&select=id,name,category_id,suggested_status`, { headers });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 async function updateSlip(id, patch) {
   const headers = await authHeaders();
   const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?id=eq.${id}`, {
@@ -70,8 +78,10 @@ async function sendNotification(slipId) {
 
 export default function Dashboard({ profile, onSignOut }) {
   const [slips, setSlips] = useState([]);
+  const [subCategories, setSubCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState("table"); // table | card
+  const [isMobile, setIsMobile] = useState(false);
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterNature, setFilterNature] = useState("All");
   const [search, setSearch] = useState("");
@@ -84,6 +94,7 @@ export default function Dashboard({ profile, onSignOut }) {
   const can = (p) => perms.includes(p);
   const isSuperadmin = profile?.role === "superadmin";
   const showTabs = isSuperadmin || can("manage_categories") || can("manage_users") || can("manage_settings");
+  const effectiveViewMode = isMobile ? "card" : viewMode; // phones always use cards
 
   async function loadSlips() {
     setLoading(true); setError("");
@@ -98,6 +109,16 @@ export default function Dashboard({ profile, onSignOut }) {
   }
 
   useEffect(() => { loadSlips(); }, []);
+  useEffect(() => { fetchSubCategories().then(setSubCategories); }, []);
+
+  // Phones can't show the wide slips table — fall back to cards below 640px.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   // Repeat-offender flagging: read the threshold, then the students who reach it
   // in any single category. Non-critical — failures just leave nothing flagged.
@@ -211,10 +232,12 @@ export default function Dashboard({ profile, onSignOut }) {
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or ID..."
                 style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", fontSize: 13, outline: "none", width: 180 }} />
-              <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
-                <button onClick={() => setViewMode("table")} style={{ background: viewMode === "table" ? C.primary : C.card, color: viewMode === "table" ? "#fff" : C.textMuted, border: "none", padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Table</button>
-                <button onClick={() => setViewMode("card")} style={{ background: viewMode === "card" ? C.primary : C.card, color: viewMode === "card" ? "#fff" : C.textMuted, border: "none", padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cards</button>
-              </div>
+              {!isMobile && (
+                <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
+                  <button onClick={() => setViewMode("table")} style={{ background: viewMode === "table" ? C.primary : C.card, color: viewMode === "table" ? "#fff" : C.textMuted, border: "none", padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Table</button>
+                  <button onClick={() => setViewMode("card")} style={{ background: viewMode === "card" ? C.primary : C.card, color: viewMode === "card" ? "#fff" : C.textMuted, border: "none", padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cards</button>
+                </div>
+              )}
               <button onClick={loadSlips} style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 12px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>🔄</button>
             </div>
           </div>
@@ -239,7 +262,7 @@ export default function Dashboard({ profile, onSignOut }) {
             <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>Loading slips...</div>
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>No slips match the current filters.</div>
-          ) : viewMode === "table" ? (
+          ) : effectiveViewMode === "table" ? (
             <TableView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} canConfirm={can("confirm_slips")} />
           ) : (
             <CardView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} canConfirm={can("confirm_slips")} />
@@ -250,7 +273,7 @@ export default function Dashboard({ profile, onSignOut }) {
 
       {/* Confirm Modal */}
       {selectedSlip && (
-        <ConfirmModal slip={selectedSlip} profile={profile}
+        <ConfirmModal slip={selectedSlip} profile={profile} subCategories={subCategories}
           onClose={() => setSelectedSlip(null)}
           onSaved={(updated) => {
             setSlips(prev => prev.map(sl => sl.id === updated.id ? updated : sl));
@@ -344,7 +367,7 @@ function CardView({ slips, onOpen, flagged = {}, canConfirm = true }) {
   );
 }
 
-function ConfirmModal({ slip, profile, onClose, onSaved }) {
+function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
   const [subCategory, setSubCategory] = useState(slip.final_sub_category || slip.ai_sub_category || "");
   const [status, setStatus] = useState(slip.status || slip.ai_status || "");
   const [docStatus, setDocStatus] = useState(slip.document_status || "Not Required");
@@ -353,7 +376,14 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
   const [notifyWarning, setNotifyWarning] = useState("");
   const [savedUpdated, setSavedUpdated] = useState(null);
 
+  // Sub-categories available for this slip's Nature of Visit (dropdown options).
+  const subOptions = subCategories.filter(sc => sc.category_id === slip.category_id);
+  const subNames = subOptions.map(sc => sc.name);
+  // Keep any legacy/custom value that isn't in the current active list.
+  const dropdownNames = subCategory && !subNames.includes(subCategory) ? [subCategory, ...subNames] : subNames;
+
   async function handleConfirm() {
+    if (subOptions.length > 0 && !subCategory) { setErr("Please select a sub-category."); return; }
     if (!status) { setErr("Please select a final status."); return; }
     setSaving(true); setErr(""); setNotifyWarning("");
     try {
@@ -421,8 +451,16 @@ function ConfirmModal({ slip, profile, onClose, onSaved }) {
         {/* Sub-category */}
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6, display: "block" }}>Sub-category</label>
-          <input value={subCategory} onChange={e => setSubCategory(e.target.value)} placeholder="e.g. Transportation"
-            style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+          {dropdownNames.length > 0 ? (
+            <select value={subCategory} onChange={e => setSubCategory(e.target.value)}
+              style={{ width: "100%", border: `1.5px solid ${subCategory ? C.border : C.warning}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, outline: "none", boxSizing: "border-box", background: C.card }}>
+              <option value="">— Select a sub-category —</option>
+              {dropdownNames.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+          ) : (
+            <input value={subCategory} onChange={e => setSubCategory(e.target.value)} placeholder="e.g. Transportation"
+              style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+          )}
         </div>
 
         {/* Final Status */}
