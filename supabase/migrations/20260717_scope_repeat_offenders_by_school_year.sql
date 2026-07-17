@@ -35,7 +35,10 @@ $$;
 -- is read once (scalar subquery), so the function stays immutable. Callers filter
 -- to the current year (school_year=eq.YYYY-YYYY). security_invoker so it still runs
 -- under the caller's RLS.
-create or replace view student_category_counts
+-- DROP first: create-or-replace can only append columns, and we insert school_year
+-- ahead of cnt, which reads as renaming a column and errors (42P16).
+drop view if exists student_category_counts;
+create view student_category_counts
   with (security_invoker = true) as
 with cfg as (
   select coalesce((value #>> '{}')::int, 6) as start_month
