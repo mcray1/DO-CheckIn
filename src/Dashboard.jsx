@@ -15,6 +15,7 @@ const C = {
 
 const STATUS_OPTIONS = ["Excused", "Unexcused", "Admit Temporarily"];
 const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
+const SEAL_SRC = import.meta.env.BASE_URL + "seal.png"; // school seal (public/), correct under /pod/
 
 function today() {
   return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -90,6 +91,7 @@ export default function Dashboard({ profile, onSignOut }) {
   const [view, setView] = useState("slips"); // slips | users | settings
   const [flagged, setFlagged] = useState({}); // student_id -> { category, cnt }
   const [onlyRepeat, setOnlyRepeat] = useState(false);
+  const [onlyToday, setOnlyToday] = useState(false); // set by clicking the Today stat card
   const [perms, setPerms] = useState([]); // effective permissions from my_permissions()
   const can = (p) => perms.includes(p);
   const isSuperadmin = profile?.role === "superadmin";
@@ -152,6 +154,7 @@ export default function Dashboard({ profile, onSignOut }) {
   const natures = [...new Set(slips.flatMap(s => s.nature || []))];
 
   const filtered = slips.filter(s => {
+    if (onlyToday && s.date !== todayStr) return false;
     if (filterStatus === "Pending" && s.status) return false;
     if (filterStatus !== "All" && filterStatus !== "Pending" && s.status !== filterStatus) return false;
     if (filterNature !== "All" && !(s.nature || []).includes(filterNature)) return false;
@@ -188,11 +191,12 @@ export default function Dashboard({ profile, onSignOut }) {
     <div style={s.root}>
       {/* Header */}
       <div style={s.header}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={s.badge}>POD</span>
-          <span style={{ fontSize: 18, fontWeight: 700 }}>POD Dashboard</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <img src={SEAL_SRC} alt="Ateneo de Iloilo seal" onError={e => { e.currentTarget.style.display = "none"; }}
+            style={{ width: 32, height: 32, objectFit: "contain", flexShrink: 0 }} />
+          {!isMobile && <span style={{ fontSize: 18, fontWeight: 700 }}>POD Dashboard</span>}
           {showTabs && (
-            <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, marginLeft: 8 }}>
+            <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, flexWrap: "wrap" }}>
               {[
                 ["slips", "Slips", true],
                 ["categories", "Categories", can("manage_categories")],
@@ -200,29 +204,45 @@ export default function Dashboard({ profile, onSignOut }) {
                 ["settings", "Settings", can("manage_settings")],
                 ["roles", "Roles", isSuperadmin],
               ].filter(([, , show]) => show).map(([id, label]) => (
-                <button key={id} onClick={() => setView(id)} style={{ background: view === id ? C.primary : C.card, color: view === id ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{label}</button>
+                <button key={id} onClick={() => setView(id)} style={{ background: view === id ? C.primary : C.card, color: view === id ? "#fff" : C.textMuted, border: "none", padding: isMobile ? "6px 10px" : "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{label}</button>
               ))}
             </div>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{profile?.full_name || profile?.email}</div>
-            <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{profile?.role}</div>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {!isMobile && (
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{profile?.full_name || profile?.email}</div>
+              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{profile?.role}</div>
+            </div>
+          )}
           <button onClick={onSignOut} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 14px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Sign Out</button>
         </div>
       </div>
 
       <div style={s.main}>
         {view === "categories" && can("manage_categories") ? <Categories /> : view === "users" && can("manage_users") ? <Users profile={profile} /> : view === "settings" && can("manage_settings") ? <Settings onChanged={loadFlags} /> : view === "roles" && isSuperadmin ? <Roles /> : <>
-        {/* Stats */}
+        {/* Stats — each card is a shortcut filter */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-          <div style={s.statCard(C.primary)}><div style={{ fontSize: 26, fontWeight: 800, color: C.primary }}>{stats.today}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Today</div></div>
-          <div style={s.statCard(C.warning)}><div style={{ fontSize: 26, fontWeight: 800, color: C.warning }}>{stats.pending}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Pending</div></div>
-          <div style={s.statCard(C.success)}><div style={{ fontSize: 26, fontWeight: 800, color: C.success }}>{stats.excused}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Excused</div></div>
-          <div style={s.statCard(C.danger)}><div style={{ fontSize: 26, fontWeight: 800, color: C.danger }}>{stats.unexcused}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Unexcused</div></div>
-          <div style={s.statCard(C.textMuted)}><div style={{ fontSize: 26, fontWeight: 800, color: C.text }}>{stats.total}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Total</div></div>
+          {[
+            { label: "Today", value: stats.today, color: C.primary, active: onlyToday,
+              onClick: () => { if (onlyToday) { setOnlyToday(false); } else { setOnlyToday(true); setFilterStatus("All"); setFilterNature("All"); setOnlyRepeat(false); } } },
+            { label: "Pending", value: stats.pending, color: C.warning, active: !onlyToday && filterStatus === "Pending",
+              onClick: () => { setOnlyToday(false); setFilterStatus("Pending"); } },
+            { label: "Excused", value: stats.excused, color: C.success, active: !onlyToday && filterStatus === "Excused",
+              onClick: () => { setOnlyToday(false); setFilterStatus("Excused"); } },
+            { label: "Unexcused", value: stats.unexcused, color: C.danger, active: !onlyToday && filterStatus === "Unexcused",
+              onClick: () => { setOnlyToday(false); setFilterStatus("Unexcused"); } },
+            { label: "Total", value: stats.total, color: C.textMuted, valueColor: C.text,
+              active: !onlyToday && filterStatus === "All" && filterNature === "All" && !onlyRepeat,
+              onClick: () => { setOnlyToday(false); setFilterStatus("All"); setFilterNature("All"); setOnlyRepeat(false); } },
+          ].map(st => (
+            <div key={st.label} onClick={st.onClick} title={`Filter: ${st.label}`}
+              style={{ ...s.statCard(st.color), cursor: "pointer", boxShadow: st.active ? `0 0 0 2px ${st.color}` : "none" }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: st.valueColor || st.color }}>{st.value}</div>
+              <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>{st.label}</div>
+            </div>
+          ))}
         </div>
 
         {/* Controls */}
@@ -246,11 +266,11 @@ export default function Dashboard({ profile, onSignOut }) {
           <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 12, color: C.textMuted, fontWeight: 700 }}>Status:</span>
             {["All", "Pending", ...STATUS_OPTIONS].map(f => (
-              <button key={f} onClick={() => setFilterStatus(f)} style={s.chip(filterStatus === f)}>{f}</button>
+              <button key={f} onClick={() => { setFilterStatus(f); setOnlyToday(false); }} style={s.chip(!onlyToday && filterStatus === f)}>{f}</button>
             ))}
             {natures.length > 0 && <span style={{ fontSize: 12, color: C.textMuted, fontWeight: 700, marginLeft: 8 }}>Nature:</span>}
             {["All", ...natures].map(f => (
-              <button key={f} onClick={() => setFilterNature(f)} style={s.chip(filterNature === f)}>{f}</button>
+              <button key={f} onClick={() => { setFilterNature(f); setOnlyToday(false); }} style={s.chip(filterNature === f)}>{f}</button>
             ))}
             <button onClick={() => setOnlyRepeat(v => !v)} title="Show only students flagged as repeat offenders"
               style={{ marginLeft: 8, background: onlyRepeat ? C.danger : C.bg, color: onlyRepeat ? "#fff" : C.danger, border: `1px solid ${onlyRepeat ? C.danger : C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>⚑ Repeat offenders</button>
