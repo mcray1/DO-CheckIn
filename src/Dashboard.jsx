@@ -3,6 +3,7 @@ import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import Users from "./Users";
 import PrintableSlip from "./PrintableSlip";
 import Settings from "./Settings";
+import Categories from "./Categories";
 
 const C = {
   primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
@@ -163,6 +164,7 @@ export default function Dashboard({ profile, onSignOut }) {
           {isAdmin && (
             <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, marginLeft: 8 }}>
               <button onClick={() => setView("slips")} style={{ background: view === "slips" ? C.primary : C.card, color: view === "slips" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Slips</button>
+              <button onClick={() => setView("categories")} style={{ background: view === "categories" ? C.primary : C.card, color: view === "categories" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Categories</button>
               <button onClick={() => setView("users")} style={{ background: view === "users" ? C.primary : C.card, color: view === "users" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Users</button>
               <button onClick={() => setView("settings")} style={{ background: view === "settings" ? C.primary : C.card, color: view === "settings" ? "#fff" : C.textMuted, border: "none", padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Settings</button>
             </div>
@@ -178,7 +180,7 @@ export default function Dashboard({ profile, onSignOut }) {
       </div>
 
       <div style={s.main}>
-        {view === "users" && isAdmin ? <Users profile={profile} /> : view === "settings" && isAdmin ? <Settings onChanged={loadFlags} /> : <>
+        {view === "categories" && isAdmin ? <Categories /> : view === "users" && isAdmin ? <Users profile={profile} /> : view === "settings" && isAdmin ? <Settings onChanged={loadFlags} /> : <>
         {/* Stats */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div style={s.statCard(C.primary)}><div style={{ fontSize: 26, fontWeight: 800, color: C.primary }}>{stats.today}</div><div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Today</div></div>
