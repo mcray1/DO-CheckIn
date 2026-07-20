@@ -5,12 +5,11 @@ import PrintableSlip from "./PrintableSlip";
 import Settings from "./Settings";
 import Categories from "./Categories";
 import Roles from "./Roles";
-import { C, T } from "./theme";
+import { C, T, SEAL_SRC } from "./theme";
 
 
 const STATUS_OPTIONS = ["Excused", "Unexcused", "Admit Temporarily"];
 const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
-const SEAL_SRC = import.meta.env.BASE_URL + "seal.png"; // school seal (public/), correct under /pod/
 
 function today() {
   return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });

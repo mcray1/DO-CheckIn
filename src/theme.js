@@ -91,6 +91,9 @@ export const C = {
 export const NAVY = T.color.navy;
 export const GOLD = T.color.gold;
 
+// School seal, served from public/. BASE_URL keeps it correct under the /pod/ subpath.
+export const SEAL_SRC = import.meta.env.BASE_URL + "seal.png";
+
 // ── Style helpers ────────────────────────────────────────────────
 // Buttons meet the 44px touch target and use the 8px radius.
 export function button(variant = "primary", opts = {}) {

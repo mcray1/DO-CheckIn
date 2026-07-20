@@ -60,6 +60,36 @@ textarea {
   }
 }
 
+/* Remove the 300ms tap delay on touch devices. */
+button,
+select {
+  touch-action: manipulation;
+}
+
+/* Touch devices (phone + iPad): every control meets the 44px touch minimum.
+   Scoped to `pointer: coarse` so mouse users keep the denser admin tables.
+   Inline styles win on padding, so min-height is what does the work here. */
+@media (pointer: coarse) {
+  button,
+  select,
+  textarea,
+  input:not([type='checkbox']):not([type='radio']) {
+    min-height: 44px;
+  }
+
+  /* Square/icon buttons (permission toggles, modal close) would otherwise
+     stretch to 26x44; keep them square and tappable. */
+  button {
+    min-width: 44px;
+  }
+
+  /* Checkboxes are their own tap target in the Categories/Roles editors. */
+  input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
+  }
+}
+
 /* ── Print: isolate the tagged admission slip ───────────────────── */
 .print-only {
   display: none;

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { supabase } from "./supabaseClient";
-import { C, T } from "./theme";
+import { C, T, SEAL_SRC } from "./theme";
 
 
 const MIN_PASSWORD = 8;
@@ -49,7 +49,7 @@ export default function ChangePassword({ profile, onDone, onSignOut }) {
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: T.font.text, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ background: C.card, borderRadius: 16, padding: "40px 40px", width: "100%", maxWidth: 440, boxShadow: "0 10px 40px rgba(15,23,42,0.1)", border: `1px solid ${C.border}` }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div style={{ display: "inline-flex", width: 48, height: 48, background: C.primary, borderRadius: "50%", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 15, marginBottom: 12 }}>POD</div>
+          <img src={SEAL_SRC} alt="Ateneo de Iloilo seal" onError={e => { e.currentTarget.style.display = "none"; }} style={{ width: 64, height: 64, objectFit: "contain", marginBottom: 12 }} />
           <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>Set a New Password</div>
           <div style={{ fontSize: 13, color: C.textMuted, marginTop: 6, lineHeight: 1.5 }}>
             Welcome{profile?.full_name ? `, ${profile.full_name}` : ""}. For security, please replace your temporary password before continuing.

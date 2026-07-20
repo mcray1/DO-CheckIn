@@ -4,14 +4,13 @@ import Login from "./Login";
 import Dashboard from "./Dashboard";
 import ChangePassword from "./ChangePassword";
 import PrintableSlip from "./PrintableSlip";
-import { C, NAVY, GOLD, T } from "./theme";
+import { C, NAVY, GOLD, T, SEAL_SRC } from "./theme";
 
 const sbHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
 
 // Ateneo de Iloilo brand accents (kiosk chrome) + the school seal.
 // Seal is served from public/ — BASE_URL keeps it correct under the /pod/ subpath.
-const SEAL_SRC = import.meta.env.BASE_URL + "seal.png";
 
 const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
 
@@ -344,7 +343,7 @@ function Kiosk({ onStaffLogin }) {
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 14, color: "rgba(255,255,255,0.85)" }}>
           <span>📅 {getToday()}</span>
           <span>🕐 <Clock /></span>
-          <button onClick={onStaffLogin} style={{ background: "transparent", border: `1.5px solid ${GOLD}`, color: GOLD, borderRadius: T.radius.md, minHeight: T.touch, padding: "9px 18px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>Staff Login</button>
+          <button onClick={onStaffLogin} style={{ background: "transparent", border: `1.5px solid ${GOLD}`, color: GOLD, borderRadius: T.radius.md, minHeight: T.touch, padding: "9px 18px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>Admin Login</button>
         </div>
       </div>
 
