@@ -4,20 +4,13 @@ import Login from "./Login";
 import Dashboard from "./Dashboard";
 import ChangePassword from "./ChangePassword";
 import PrintableSlip from "./PrintableSlip";
+import { C, NAVY, GOLD, T } from "./theme";
 
 const sbHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
-const C = {
-  primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
-  bg: "#f1f5f9", card: "#ffffff", text: "#1e293b",
-  textMuted: "#64748b", textLight: "#94a3b8", border: "#e2e8f0",
-  success: "#10b981", warning: "#f59e0b", danger: "#ef4444",
-};
 
 // Ateneo de Iloilo brand accents (kiosk chrome) + the school seal.
 // Seal is served from public/ — BASE_URL keeps it correct under the /pod/ subpath.
-const NAVY = "#12315B";
-const GOLD = "#C8A24B";
 const SEAL_SRC = import.meta.env.BASE_URL + "seal.png";
 
 const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
@@ -327,7 +320,7 @@ function Kiosk({ onStaffLogin }) {
 
   const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
   const s = {
-    root: { minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", display: "flex", flexDirection: "column", color: C.text },
+    root: { minHeight: "100vh", background: C.bg, fontFamily: T.font.text, display: "flex", flexDirection: "column", color: C.text },
     header: { background: NAVY, borderBottom: `3px solid ${GOLD}`, padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, color: "#fff" },
     badge: { background: C.primary, color: "#fff", fontWeight: 800, fontSize: 13, padding: "3px 10px", borderRadius: 4, letterSpacing: 1, textTransform: "uppercase" },
     main: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 16px" },
@@ -351,7 +344,7 @@ function Kiosk({ onStaffLogin }) {
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 14, color: "rgba(255,255,255,0.85)" }}>
           <span>📅 {getToday()}</span>
           <span>🕐 <Clock /></span>
-          <button onClick={onStaffLogin} style={{ background: "transparent", border: `1.5px solid ${GOLD}`, color: GOLD, borderRadius: 8, padding: "9px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Staff Login</button>
+          <button onClick={onStaffLogin} style={{ background: "transparent", border: `1.5px solid ${GOLD}`, color: GOLD, borderRadius: T.radius.md, minHeight: T.touch, padding: "9px 18px", fontWeight: 600, fontSize: 15, cursor: "pointer" }}>Staff Login</button>
         </div>
       </div>
 
@@ -441,7 +434,7 @@ function Kiosk({ onStaffLogin }) {
                 <label style={s.label}>If Late</label>
                 <div style={{ display: "flex", gap: 10 }}>
                   {["A.M.", "P.M."].map(m => (
-                    <button key={m} onClick={() => setMeridiem(m)} style={{ flex: 1, padding: "10px", border: `2px solid ${meridiem === m ? C.primary : C.border}`, background: meridiem === m ? C.primaryBg : C.card, color: meridiem === m ? C.primary : C.textMuted, borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>{m}</button>
+                    <button key={m} onClick={() => setMeridiem(m)} style={{ flex: 1, minHeight: T.touch, padding: "10px", border: `2px solid ${meridiem === m ? C.primary : C.border}`, background: meridiem === m ? C.primaryBg : C.card, color: meridiem === m ? C.primary : C.textMuted, borderRadius: T.radius.md, fontWeight: 600, fontSize: 15, cursor: "pointer" }}>{m}</button>
                   ))}
                   <div style={{ flex: 2, background: C.primaryBg, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "10px 14px", fontSize: 14, color: C.primary, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
                     🕐 Time: <Clock />
@@ -555,7 +548,7 @@ export default function App() {
   }
 
   if (authLoading) {
-    return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', system-ui, sans-serif", color: C.textMuted }}>Loading...</div>;
+    return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font.text, color: C.textMuted }}>Loading...</div>;
   }
 
   // Logged in

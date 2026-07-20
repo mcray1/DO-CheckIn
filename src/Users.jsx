@@ -1,12 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
+import { C } from "./theme";
 
-const C = {
-  primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
-  bg: "#f1f5f9", card: "#ffffff", text: "#1e293b",
-  textMuted: "#64748b", textLight: "#94a3b8", border: "#e2e8f0",
-  success: "#10b981", warning: "#f59e0b", danger: "#ef4444",
-};
 
 const ROLE_LABELS = { superadmin: "Super Admin", pod_admin: "Admin", pod_staff: "Staff", faculty: "Faculty" };
 const RANK = { superadmin: 3, pod_admin: 2, pod_staff: 1, faculty: 0 };

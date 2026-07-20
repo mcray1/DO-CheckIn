@@ -5,13 +5,8 @@ import PrintableSlip from "./PrintableSlip";
 import Settings from "./Settings";
 import Categories from "./Categories";
 import Roles from "./Roles";
+import { C, T } from "./theme";
 
-const C = {
-  primary: "#1e40af", primaryLight: "#3b82f6", primaryBg: "#dbeafe",
-  bg: "#f1f5f9", card: "#ffffff", text: "#1e293b",
-  textMuted: "#64748b", textLight: "#94a3b8", border: "#e2e8f0",
-  success: "#10b981", warning: "#f59e0b", danger: "#ef4444",
-};
 
 const STATUS_OPTIONS = ["Excused", "Unexcused", "Admit Temporarily"];
 const statusColors = { Excused: C.success, Unexcused: C.danger, "Admit Temporarily": C.warning };
@@ -176,7 +171,7 @@ export default function Dashboard({ profile, onSignOut }) {
   };
 
   const s = {
-    root: { minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", color: C.text },
+    root: { minHeight: "100vh", background: C.bg, fontFamily: T.font.text, color: C.text },
     header: { background: C.card, borderBottom: `2px solid ${C.primary}`, padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 },
     badge: { background: C.primary, color: "#fff", fontWeight: 800, fontSize: 13, padding: "3px 10px", borderRadius: 4, letterSpacing: 1 },
     main: { maxWidth: 1200, margin: "0 auto", padding: "24px 20px" },

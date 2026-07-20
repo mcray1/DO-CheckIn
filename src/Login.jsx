@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { supabase } from "./supabaseClient";
+import { C, T } from "./theme";
 
-const C = {
-  primary: "#1e40af", primaryBg: "#dbeafe", bg: "#f1f5f9",
-  card: "#ffffff", text: "#1e293b", textMuted: "#64748b",
-  textLight: "#94a3b8", border: "#e2e8f0", danger: "#ef4444", warning: "#f59e0b",
-};
 
 const ALLOWED_DOMAIN = "@adi.edu.ph";
 
@@ -46,7 +42,7 @@ export default function Login({ onBack, message }) {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Inter', system-ui, sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: T.font.text, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ background: C.card, borderRadius: 16, padding: "40px 40px", width: "100%", maxWidth: 420, boxShadow: "0 10px 40px rgba(15,23,42,0.1)", border: `1px solid ${C.border}` }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div style={{ display: "inline-flex", width: 48, height: 48, background: C.primary, borderRadius: "50%", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 15, marginBottom: 12 }}>POD</div>

@@ -1,15 +1,11 @@
 import { useState, useEffect } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
+import { C } from "./theme";
 
 // Superadmin-only permission matrix (roles x capabilities). Presence of a
 // (role, permission) row in role_permissions = granted. superadmin is implicit-all
 // and shown locked; the row-level policy (20260717_role_permissions) is the real gate.
 
-const C = {
-  primary: "#1e40af", primaryBg: "#dbeafe", bg: "#f1f5f9", card: "#ffffff",
-  text: "#1e293b", textMuted: "#64748b", textLight: "#94a3b8", border: "#e2e8f0",
-  success: "#10b981", warning: "#f59e0b", danger: "#ef4444",
-};
 
 const PERMISSIONS = [
   ["confirm_slips", "Confirm / override slips"],
