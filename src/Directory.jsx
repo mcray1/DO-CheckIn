@@ -163,10 +163,168 @@ function AdviserModal({ initial, sections = [], onSave, onClose }) {
   );
 }
 
+// ── Adviser CSV import ────────────────────────────────────────────
+const ADVISER_ALIASES = {
+  employee_id: ["employeeid", "empid", "employeeno", "idno", "id"],
+  last_name: ["lastname", "surname", "familyname"],
+  first_name: ["firstname", "givenname"],
+  middle_name: ["middlename", "middleinitial", "mi"],
+  name: ["name", "fullname", "teachername", "advisername"],
+  email: ["email", "emailaddress", "schoolemail"],
+  department: ["department", "dept"],
+  level: ["level", "grade", "gradelevel", "yearlevel"],
+  section: ["section", "advisoryclass", "advisory", "class"],
+};
+
+// "DELA CRUZ, JUAN P." -> {last, first}; falls back to splitting on the last space.
+function splitName(full) {
+  const s = String(full).trim();
+  if (s.includes(",")) {
+    const [last, rest] = s.split(",");
+    return { last_name: last.trim(), first_name: (rest || "").trim() };
+  }
+  const parts = s.split(/\s+/);
+  if (parts.length === 1) return { last_name: parts[0], first_name: "" };
+  return { last_name: parts.pop(), first_name: parts.join(" ") };
+}
+
+// Matches on employee ID then email, updating those and inserting the rest.
+// Deliberately avoids a DB upsert: teachers has no guaranteed unique key, and
+// adding one could fail outright on existing duplicate/blank employee IDs.
+async function importAdvisers(rows, onProgress) {
+  const headers = await authHeaders();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=id,employee_id,email`, { headers });
+  if (!res.ok) throw new Error(await res.text());
+  const existing = await res.json();
+  const key = (v) => String(v ?? "").trim().toLowerCase();
+  const byEmp = new Map(), byEmail = new Map();
+  for (const t of existing) {
+    if (t.employee_id) byEmp.set(key(t.employee_id), t.id);
+    if (t.email) byEmail.set(key(t.email), t.id);
+  }
+
+  const toUpdate = [], toInsert = [];
+  for (const r of rows) {
+    const id = (r.employee_id && byEmp.get(key(r.employee_id))) || (r.email && byEmail.get(key(r.email)));
+    if (id) toUpdate.push({ id, patch: r }); else toInsert.push(r);
+  }
+
+  let done = 0;
+  for (const u of toUpdate) {
+    await apiUpdate("teachers", u.id, u.patch);
+    onProgress(`Updating existing advisers… ${++done}/${toUpdate.length}`);
+  }
+  for (let i = 0; i < toInsert.length; i += 100) {
+    await apiInsert("teachers", toInsert.slice(i, i + 100).map(r => ({ ...r, is_active: true })));
+    onProgress(`Adding new advisers… ${Math.min(i + 100, toInsert.length)}/${toInsert.length}`);
+  }
+  return { updated: toUpdate.length, inserted: toInsert.length };
+}
+
+function AdviserImportPanel({ sections, onDone, onClose }) {
+  const [text, setText] = useState("");
+  const [parsed, setParsed] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
+  const [err, setErr] = useState("");
+
+  function analyse(raw) {
+    setErr(""); setParsed(null);
+    const grid = parseCSV(raw);
+    if (grid.length < 2) { setErr("Need a header row plus at least one adviser."); return; }
+    const map = {};
+    grid[0].forEach((h, i) => {
+      const k = squash(h);
+      for (const [field, aliases] of Object.entries(ADVISER_ALIASES)) {
+        if (aliases.includes(k) && map[field] === undefined) { map[field] = i; break; }
+      }
+    });
+    const hasNames = map.last_name !== undefined || map.name !== undefined;
+    if (!hasNames) { setErr('Need a "Last Name" (with First Name) or a single "Name" column.'); return; }
+
+    const known = new Set(sections.map(s => `${s.level || ""}||${s.section || ""}`.toLowerCase()));
+    const unmatched = new Set();
+    const rows = grid.slice(1).map(r => {
+      const get = (f) => map[f] === undefined ? null : ((r[map[f]] ?? "").trim() || null);
+      let last = get("last_name"), first = get("first_name");
+      if (!last && map.name !== undefined) {
+        const s = splitName(r[map.name] || "");
+        last = s.last_name || null; first = s.first_name || null;
+      }
+      const level = get("level"), section = get("section");
+      if (section && !known.has(`${level || ""}||${section}`.toLowerCase())) unmatched.add([level, section].filter(Boolean).join(" · "));
+      return {
+        employee_id: get("employee_id"), last_name: last, first_name: first,
+        middle_name: get("middle_name"), email: get("email") ? get("email").toLowerCase() : null,
+        department: get("department"), level, section,
+      };
+    }).filter(r => r.last_name);
+
+    setParsed({ rows, detected: Object.keys(map), unmatched: [...unmatched] });
+  }
+
+  function onFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { setText(String(reader.result)); analyse(String(reader.result)); };
+    reader.readAsText(file);
+  }
+
+  async function doImport() {
+    if (!parsed?.rows.length) return;
+    setBusy(true); setErr(""); setProgress("");
+    try {
+      const r = await importAdvisers(parsed.rows, setProgress);
+      onDone(`${r.updated} adviser${r.updated === 1 ? "" : "s"} updated, ${r.inserted} added.`);
+    } catch (e) {
+      setErr("Import stopped: " + e.message);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Modal title="Import advisers from CSV" onClose={onClose}>
+      <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.55, marginBottom: 12 }}>
+        Matched on <strong>employee ID</strong>, then <strong>email</strong> — matches are updated, the rest are added. Nothing is deleted.
+        Recognised columns: employee id, last/first/middle name (or a single name), email, department, level, section.
+      </div>
+      <input type="file" accept=".csv,text/csv" onChange={onFile} style={{ marginBottom: 10, fontSize: 13 }} />
+      <div style={{ fontSize: 12, color: C.textLight, marginBottom: 6 }}>…or paste the CSV below</div>
+      <textarea value={text} onChange={e => setText(e.target.value)} onBlur={() => text && analyse(text)}
+        rows={5} placeholder={"Employee ID,Name,Email,Level,Section\n1042,\"SANTOS, MARIA\",msantos@adi.edu.ph,Grade 12,Magis"}
+        style={{ ...inputStyle(), fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, resize: "vertical" }} />
+
+      {parsed && (
+        <div style={{ marginTop: 12, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, fontSize: 13 }}>
+          <div><strong>{parsed.rows.length}</strong> adviser rows ready.</div>
+          <div style={{ color: C.textMuted, marginTop: 4 }}>Columns detected: {parsed.detected.join(", ")}</div>
+          {parsed.unmatched.length > 0 && (
+            <div style={{ marginTop: 8, color: C.warning, lineHeight: 1.5 }}>
+              ⚠️ {parsed.unmatched.length} section{parsed.unmatched.length === 1 ? "" : "s"} match no enrolled students — the kiosk won't auto-assign these: <strong>{parsed.unmatched.slice(0, 6).join(", ")}</strong>{parsed.unmatched.length > 6 ? "…" : ""}
+            </div>
+          )}
+        </div>
+      )}
+
+      {progress && <div style={{ marginTop: 10, fontSize: 13, color: C.primary, fontWeight: 600 }}>{progress}</div>}
+      {err && <div style={{ marginTop: 10, fontSize: 13, color: C.danger }}>{err}</div>}
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 14 }}>
+        <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+        <button onClick={doImport} disabled={busy || !parsed || !parsed.rows.length}
+          style={{ background: (busy || !parsed?.rows.length) ? C.textLight : C.primary, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer" }}>
+          {busy ? "Importing..." : "Import"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Advisers ──────────────────────────────────────────────────────
 function Advisers() {
   const [rows, setRows] = useState([]);
   const [sections, setSections] = useState([]);
+  const [importing, setImporting] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
@@ -216,8 +374,9 @@ function Advisers() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or section..."
           style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 14, outline: "none", width: 240 }} />
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={load} style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 6, padding: "6px 12px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>🔄</button>
+          <button onClick={() => setImporting(true)} style={{ background: C.card, color: C.primary, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontWeight: 700 }}>⬆ Import CSV</button>
           <button onClick={() => setCreating(true)} style={{ background: C.primary, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontWeight: 700 }}>+ New Adviser</button>
         </div>
       </div>
@@ -274,6 +433,8 @@ function Advisers() {
 
       {creating && <AdviserModal sections={sections} onClose={() => setCreating(false)}
         onSave={async (v) => { await run(() => apiInsert("teachers", v), "Adviser added."); setCreating(false); }} />}
+      {importing && <AdviserImportPanel sections={sections} onClose={() => setImporting(false)}
+        onDone={(msg) => { setImporting(false); fetchStudentSections().then(setSections); load(); flash(msg); }} />}
       {editing && <AdviserModal initial={editing} sections={sections} onClose={() => setEditing(null)}
         onSave={async (v) => { await run(() => apiUpdate("teachers", editing.id, v), "Adviser updated."); setEditing(null); }} />}
     </div>
