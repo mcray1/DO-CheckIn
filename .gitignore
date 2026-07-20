@@ -15,6 +15,9 @@ dist-ssr
 # Deploy artifact from deploy-build.ps1 / npm run deploy:zip
 pod-deploy.zip
 
+# Supabase CLI scratch
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
