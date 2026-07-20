@@ -59,7 +59,20 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-function AdviserModal({ initial, onSave, onClose }) {
+// Level+section pairs that students are actually in — the source of truth for
+// adviser assignment, so a typo can't break kiosk matching.
+async function fetchStudentSections() {
+  const headers = await authHeaders();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/student_sections?select=level,section`, { headers });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return rows
+    .filter(r => r.section)
+    .sort((a, b) => `${a.level || ""}${a.section}`.localeCompare(`${b.level || ""}${b.section}`));
+}
+const sectionKey = (level, section) => `${level || ""}||${section || ""}`;
+
+function AdviserModal({ initial, sections = [], onSave, onClose }) {
   const [f, setF] = useState({
     employee_id: initial?.employee_id || "",
     first_name: initial?.first_name || "",
@@ -105,12 +118,35 @@ function AdviserModal({ initial, onSave, onClose }) {
         <input value={f.email} onChange={set("email")} placeholder="name@adi.edu.ph" style={inputStyle()} /></div>
       <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10, lineHeight: 1.5 }}>
-          The kiosk matches a student's grade level and section to find their adviser, so students don't pick a name. Fill both in to enable that.
+          The kiosk finds a student's adviser by matching their grade level and section, so students never pick a name. Choose from the sections students are actually enrolled in.
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div><label style={labelStyle()}>Grade level</label><input value={f.level} onChange={set("level")} placeholder="e.g. Grade 9" style={inputStyle()} /></div>
-          <div><label style={labelStyle()}>Section</label><input value={f.section} onChange={set("section")} placeholder="e.g. Obedience" style={inputStyle()} /></div>
-        </div>
+        <label style={labelStyle()}>Advisory class</label>
+        {sections.length === 0 ? (
+          <div style={{ fontSize: 13, color: C.warning }}>
+            No student sections found yet — import students first, then set advisory classes.
+          </div>
+        ) : (
+          <select
+            value={sectionKey(f.level, f.section)}
+            onChange={e => {
+              const [level, section] = e.target.value.split("||");
+              setF({ ...f, level: level || "", section: section || "" });
+            }}
+            style={{ ...inputStyle(), background: C.card }}>
+            <option value="||">— None (adviser won't be auto-assigned) —</option>
+            {/* Keep an existing value that no longer matches any student section. */}
+            {f.section && !sections.some(s => sectionKey(s.level, s.section) === sectionKey(f.level, f.section)) && (
+              <option value={sectionKey(f.level, f.section)}>
+                {[f.level, f.section].filter(Boolean).join(" · ")} (no students)
+              </option>
+            )}
+            {sections.map(s => (
+              <option key={sectionKey(s.level, s.section)} value={sectionKey(s.level, s.section)}>
+                {[s.level, s.section].filter(Boolean).join(" · ")}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div style={{ marginBottom: 12 }}><label style={labelStyle()}>Department</label>
         <input value={f.department} onChange={set("department")} style={inputStyle()} /></div>
@@ -130,6 +166,7 @@ function AdviserModal({ initial, onSave, onClose }) {
 // ── Advisers ──────────────────────────────────────────────────────
 function Advisers() {
   const [rows, setRows] = useState([]);
+  const [sections, setSections] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
@@ -160,6 +197,7 @@ function Advisers() {
     } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [page]);
+  useEffect(() => { fetchStudentSections().then(setSections); }, []);
   useEffect(() => { const t = setTimeout(() => { setPage(0); load(); }, 350); return () => clearTimeout(t); }, [search]);
 
   function flash(m) { setNotice(m); setTimeout(() => setNotice(""), 3000); }
@@ -234,9 +272,9 @@ function Advisers() {
         </div>
       )}
 
-      {creating && <AdviserModal onClose={() => setCreating(false)}
+      {creating && <AdviserModal sections={sections} onClose={() => setCreating(false)}
         onSave={async (v) => { await run(() => apiInsert("teachers", v), "Adviser added."); setCreating(false); }} />}
-      {editing && <AdviserModal initial={editing} onClose={() => setEditing(null)}
+      {editing && <AdviserModal initial={editing} sections={sections} onClose={() => setEditing(null)}
         onSave={async (v) => { await run(() => apiUpdate("teachers", editing.id, v), "Adviser updated."); setEditing(null); }} />}
     </div>
   );
@@ -462,7 +500,7 @@ function Students() {
       const filter = q ? `&or=(name.ilike.*${enc}*,student_no.ilike.*${enc}*,section.ilike.*${enc}*)` : "";
       const from = page * PAGE_SIZE;
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/students?select=id,student_no,name,level,section,gender,program,rfid,is_active&order=name${filter}`,
+        `${SUPABASE_URL}/rest/v1/students?select=*&order=name${filter}`,
         { headers: { ...headers, Range: `${from}-${from + PAGE_SIZE - 1}`, Prefer: "count=exact" } });
       if (!res.ok) throw new Error(await res.text());
       setRows(await res.json());
