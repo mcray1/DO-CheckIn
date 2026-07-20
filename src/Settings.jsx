@@ -18,6 +18,8 @@ async function authHeaders() {
 export default function Settings({ onChanged }) {
   const [threshold, setThreshold] = useState(3);
   const [startMonth, setStartMonth] = useState(6);
+  const [emailOn, setEmailOn] = useState(true);
+  const [savingEmail, setSavingEmail] = useState(false);
   const [maintenanceOn, setMaintenanceOn] = useState(false);
   const [maintenanceMsg, setMaintenanceMsg] = useState("");
   const [loading, setLoading] = useState(true);
@@ -37,6 +39,7 @@ export default function Settings({ onChanged }) {
       for (const r of rows) map[r.key] = r.value;
       if (map.repeat_offender_threshold != null) setThreshold(Number(map.repeat_offender_threshold) || 3);
       if (map.school_year_start_month != null) setStartMonth(Number(map.school_year_start_month) || 6);
+      setEmailOn(map.email_notifications_enabled !== false);
       setMaintenanceOn(map.maintenance_mode === true);
       setMaintenanceMsg(typeof map.maintenance_message === "string" ? map.maintenance_message : "");
     } catch (e) {
@@ -85,6 +88,19 @@ export default function Settings({ onChanged }) {
       setError("Could not save (admins only): " + e.message);
     } finally {
       setSavingStartMonth(false);
+    }
+  }
+
+  async function saveEmail(nextOn) {
+    setSavingEmail(true); setError("");
+    try {
+      await saveSetting("email_notifications_enabled", nextOn);
+      setEmailOn(nextOn);
+      flash(nextOn ? "Adviser emails are ON." : "Adviser emails are OFF — slips still confirm, no email is sent.");
+    } catch (e) {
+      setError("Could not save (admins only): " + e.message);
+    } finally {
+      setSavingEmail(false);
     }
   }
 
@@ -146,6 +162,20 @@ export default function Settings({ onChanged }) {
             {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </select>
           {savingStartMonth && <span style={{ fontSize: 13, color: C.textMuted }}>Saving...</span>}
+        </div>
+      </div>
+
+      {/* Adviser email notifications */}
+      <div style={section}>
+        <label style={label}>Adviser email notifications</label>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5 }}>
+            When ON, confirming a slip emails the student's adviser. When OFF, slips still confirm normally — no email is sent and nothing is queued.
+          </div>
+          <button onClick={() => saveEmail(!emailOn)} disabled={savingEmail || loading}
+            style={{ flexShrink: 0, background: emailOn ? C.success : C.bg, color: emailOn ? "#fff" : C.textMuted, border: `1px solid ${emailOn ? C.success : C.border}`, borderRadius: 20, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: savingEmail || loading ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
+            {savingEmail ? "Saving..." : emailOn ? "● ON — Turn Off" : "○ OFF — Turn On"}
+          </button>
         </div>
       </div>
 

@@ -89,8 +89,30 @@ async function searchStudents(query) {
   const all = await res.json();
   return all.slice(0, 8).map(r => ({
     name: r.name, student_id: r.student_no,
+    level: r.level, section: r.section,
     grade_section: [r.level, r.section].filter(Boolean).join(" - "),
   }));
+}
+// Resolve a student's adviser from their level + section, so the student never
+// has to know the name. Exact level+section wins; section alone is the fallback
+// (some schools reuse section names across levels). null => manual search.
+async function findAdviser(level, section) {
+  if (!section) return null;
+  const enc = encodeURIComponent;
+  const attempt = async (qs) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?is_active=eq.true&${qs}&select=id,first_name,last_name,middle_name,email&limit=1`, { headers: sbHeaders });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return rows[0] || null;
+  };
+  let t = level ? await attempt(`level=eq.${enc(level)}&section=eq.${enc(section)}`) : null;
+  if (!t) t = await attempt(`section=eq.${enc(section)}`);
+  if (!t) return null;
+  return {
+    id: t.id,
+    full_name: `${t.last_name}, ${t.first_name}${t.middle_name ? " " + t.middle_name : ""}`,
+    email: t.email || "",
+  };
 }
 async function searchTeachers(query) {
   if (!query || query.trim().length < 2) return [];
@@ -281,6 +303,7 @@ function Kiosk({ onStaffLogin }) {
   const [meridiem, setMeridiem] = useState(getMeridiem());
   const [absenceDate, setAbsenceDate] = useState("");       // Absent only, ISO yyyy-mm-dd
   const [absenceEnd, setAbsenceEnd] = useState("");         // defaults to the start date
+  const [adviserAuto, setAdviserAuto] = useState(false);    // adviser resolved from section
   const [aiResult, setAiResult] = useState(null);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -303,7 +326,7 @@ function Kiosk({ onStaffLogin }) {
 
   function resetForm() {
     setStep("search"); setSelectedStudent(null); setSelectedCategory(null);
-    setSelectedTeacher(null); setReason(""); setMeridiem(getMeridiem());
+    setSelectedTeacher(null); setAdviserAuto(false); setReason(""); setMeridiem(getMeridiem());
     setAbsenceDate(""); setAbsenceEnd(""); setAiResult(null); setErrors({}); setSubmitError("");
   }
   function validate() {
@@ -404,7 +427,11 @@ function Kiosk({ onStaffLogin }) {
             <div style={{ fontSize: 15, color: C.textMuted, marginBottom: 28 }}>Search your name or Student ID to begin.</div>
             <div style={{ textAlign: "left" }}>
               <SearchBox placeholder="Type your name or Student ID..." searchFn={searchStudents} autoFocus
-                onSelect={st => { setSelectedStudent(st); setStep("form"); }}
+                onSelect={st => {
+                  setSelectedStudent(st); setStep("form");
+                  setSelectedTeacher(null); setAdviserAuto(false);
+                  findAdviser(st.level, st.section).then(a => { if (a) { setSelectedTeacher(a); setAdviserAuto(true); } });
+                }}
                 renderItem={item => (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div>
@@ -449,12 +476,17 @@ function Kiosk({ onStaffLogin }) {
                     <div>
                       <div style={{ fontWeight: 600, color: C.text, fontSize: 14 }}>{selectedTeacher.full_name}</div>
                       <div style={{ fontSize: 12, color: C.textMuted }}>{selectedTeacher.email}</div>
+                      {adviserAuto && (
+                        <div style={{ fontSize: 11, color: C.success, fontWeight: 700, marginTop: 2 }}>
+                          ✓ Adviser for {selectedStudent?.grade_section}
+                        </div>
+                      )}
                     </div>
-                    <button onClick={() => setSelectedTeacher(null)} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
+                    <button onClick={() => { setSelectedTeacher(null); setAdviserAuto(false); }} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
                   </div>
                 ) : (
                   <SearchBox placeholder="Search adviser by name..." searchFn={searchTeachers}
-                    onSelect={t => setSelectedTeacher(t)}
+                    onSelect={t => { setSelectedTeacher(t); setAdviserAuto(false); }}
                     renderItem={item => (
                       <div>
                         <div style={{ fontWeight: 600, color: C.text }}>{item.full_name}</div>

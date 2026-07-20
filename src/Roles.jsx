@@ -11,6 +11,7 @@ const PERMISSIONS = [
   ["confirm_slips", "Confirm / override slips"],
   ["manage_categories", "Manage categories & keywords"],
   ["manage_users", "Manage user accounts"],
+  ["manage_directory", "Manage advisers & students"],
   ["manage_settings", "Manage settings"],
   ["view_reports", "View reports"],
 ];

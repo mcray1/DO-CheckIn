@@ -165,6 +165,14 @@ Deno.serve(async (req) => {
       return json({ ok: true, reason: "Already notified" });
     }
 
+    // Admin kill-switch. Enforced here as well as in the UI so nothing slips out
+    // while notifications are paused.
+    const { data: emailSetting } = await supabase
+      .from("settings").select("value").eq("key", "email_notifications_enabled").maybeSingle();
+    if (emailSetting?.value === false) {
+      return json({ ok: false, reason: "Adviser emails are turned off in Settings" });
+    }
+
     const subject = `POD Notice — ${slip.name} | ${(slip.nature || []).join(", ")} | ${slip.date} ${slip.time_arrived}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 520px;">

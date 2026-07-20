@@ -5,6 +5,7 @@ import PrintableSlip from "./PrintableSlip";
 import Settings from "./Settings";
 import Categories from "./Categories";
 import Roles from "./Roles";
+import Directory from "./Directory";
 import { C, T, SEAL_SRC } from "./theme";
 
 
@@ -105,10 +106,11 @@ export default function Dashboard({ profile, onSignOut }) {
   const [flagged, setFlagged] = useState({}); // student_id -> { category, cnt }
   const [onlyRepeat, setOnlyRepeat] = useState(false);
   const [onlyToday, setOnlyToday] = useState(false); // set by clicking the Today stat card
+  const [emailEnabled, setEmailEnabled] = useState(true); // settings.email_notifications_enabled
   const [perms, setPerms] = useState([]); // effective permissions from my_permissions()
   const can = (p) => perms.includes(p);
   const isSuperadmin = profile?.role === "superadmin";
-  const showTabs = isSuperadmin || can("manage_categories") || can("manage_users") || can("manage_settings");
+  const showTabs = isSuperadmin || can("manage_categories") || can("manage_users") || can("manage_directory") || can("manage_settings");
   const effectiveViewMode = isMobile ? "card" : viewMode; // phones always use cards
 
   async function loadSlips() {
@@ -140,10 +142,11 @@ export default function Dashboard({ profile, onSignOut }) {
   async function loadFlags() {
     try {
       const headers = await authHeaders();
-      const tRes = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=in.(repeat_offender_threshold,school_year_start_month)&select=key,value`, { headers });
+      const tRes = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=in.(repeat_offender_threshold,school_year_start_month,email_notifications_enabled)&select=key,value`, { headers });
       const sRows = tRes.ok ? await tRes.json() : [];
       const cfg = {};
       for (const r of sRows) cfg[r.key] = r.value;
+      setEmailEnabled(cfg.email_notifications_enabled !== false);
       const threshold = Number(cfg.repeat_offender_threshold ?? 3) || 3;
       const startMonth = Number(cfg.school_year_start_month ?? 6) || 6;
       const sy = currentSchoolYear(startMonth);
@@ -213,6 +216,7 @@ export default function Dashboard({ profile, onSignOut }) {
               {[
                 ["slips", "Slips", true],
                 ["categories", "Categories", can("manage_categories")],
+                ["directory", "Directory", can("manage_directory")],
                 ["users", "Users", can("manage_users")],
                 ["settings", "Settings", can("manage_settings")],
                 ["roles", "Roles", isSuperadmin],
@@ -234,7 +238,7 @@ export default function Dashboard({ profile, onSignOut }) {
       </div>
 
       <div style={s.main}>
-        {view === "categories" && can("manage_categories") ? <Categories /> : view === "users" && can("manage_users") ? <Users profile={profile} /> : view === "settings" && can("manage_settings") ? <Settings onChanged={loadFlags} /> : view === "roles" && isSuperadmin ? <Roles /> : <>
+        {view === "categories" && can("manage_categories") ? <Categories /> : view === "directory" && can("manage_directory") ? <Directory /> : view === "users" && can("manage_users") ? <Users profile={profile} /> : view === "settings" && can("manage_settings") ? <Settings onChanged={loadFlags} /> : view === "roles" && isSuperadmin ? <Roles /> : <>
         {/* Stats — each card is a shortcut filter */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           {[
@@ -306,7 +310,7 @@ export default function Dashboard({ profile, onSignOut }) {
 
       {/* Confirm Modal */}
       {selectedSlip && (
-        <ConfirmModal slip={selectedSlip} profile={profile} subCategories={subCategories}
+        <ConfirmModal slip={selectedSlip} profile={profile} subCategories={subCategories} emailEnabled={emailEnabled}
           onClose={() => setSelectedSlip(null)}
           onSaved={(updated) => {
             setSlips(prev => prev.map(sl => sl.id === updated.id ? updated : sl));
@@ -400,7 +404,7 @@ function CardView({ slips, onOpen, flagged = {}, canConfirm = true }) {
   );
 }
 
-function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
+function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, onClose, onSaved }) {
   const [subCategory, setSubCategory] = useState(slip.final_sub_category || slip.ai_sub_category || "");
   const [status, setStatus] = useState(slip.status || slip.ai_status || "");
   const [docStatus, setDocStatus] = useState(slip.document_status || "Not Required");
@@ -430,8 +434,9 @@ function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
       };
       const [updated] = await updateSlip(slip.id, patch);
 
-      // Email the adviser on first confirmation (skip if no email or already sent).
-      if (slip.teacher_email && !slip.notification_sent) {
+      // Email the adviser on first confirmation (skipped when the admin has
+      // switched notifications off, or there is no address / it already went).
+      if (emailEnabled && slip.teacher_email && !slip.notification_sent) {
         let notify;
         try { notify = await sendNotification(slip.id); }
         catch (e) { notify = { ok: false, error: e.message }; }
