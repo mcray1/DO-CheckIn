@@ -51,6 +51,19 @@ create policy students_admin_write on students
 
 grant usage, select on all sequences in schema public to authenticated;
 
+-- ── Student CSV import needs a unique key to upsert on ────────────
+-- student_no should already be unique from the original import; this is a
+-- no-op when a unique index/constraint on that column already exists.
+do $$
+begin
+  if not exists (
+    select 1 from pg_indexes
+    where tablename = 'students' and indexdef ilike '%unique%(student_no)%'
+  ) then
+    execute 'create unique index students_student_no_uniq on students (student_no)';
+  end if;
+end $$;
+
 -- ── Adviser email on/off ──────────────────────────────────────────
 insert into settings (key, value)
 values ('email_notifications_enabled', 'true'::jsonb)
