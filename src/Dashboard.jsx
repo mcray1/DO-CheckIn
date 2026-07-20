@@ -21,6 +21,18 @@ function formatISODate(iso) {
   const [y, m, d] = String(iso).split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
+// Inclusive day count across an absence range.
+function countDays(startISO, endISO) {
+  if (!startISO) return 0;
+  const p = (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+  return Math.round((p(endISO || startISO) - p(startISO)) / 86400000) + 1;
+}
+// One day -> "Jul 19, 2026"; several -> "Jul 17 – Jul 19, 2026".
+function formatAbsenceRange(startISO, endISO) {
+  if (!startISO) return "";
+  if (!endISO || endISO === startISO) return formatISODate(startISO);
+  return `${formatISODate(startISO)} – ${formatISODate(endISO)}`;
+}
 
 // Current school-year label, matching school_year_of() in the 20260717 migration.
 // startMonth is the admin-configured settings.school_year_start_month (default 6).
@@ -66,7 +78,7 @@ async function updateSlip(id, patch) {
   return res.json();
 }
 
-// Fire the teacher email for a slip. Returns { ok, error?/reason? } and never throws
+// Fire the adviser email for a slip. Returns { ok, error?/reason? } and never throws
 // on an HTTP error (so a failed email can't block a confirmed slip).
 async function sendNotification(slipId) {
   const headers = await authHeaders();
@@ -418,7 +430,7 @@ function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
       };
       const [updated] = await updateSlip(slip.id, patch);
 
-      // Email the teacher on first confirmation (skip if no email or already sent).
+      // Email the adviser on first confirmation (skip if no email or already sent).
       if (slip.teacher_email && !slip.notification_sent) {
         let notify;
         try { notify = await sendNotification(slip.id); }
@@ -458,8 +470,8 @@ function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
         <div style={{ background: C.bg, borderRadius: 8, padding: "12px 14px", marginBottom: 16, fontSize: 13 }}>
           <div style={{ marginBottom: 6 }}><strong>Nature:</strong> {(slip.nature || []).join(", ")} {slip.meridiem ? `(${slip.meridiem})` : ""}</div>
           <div style={{ marginBottom: 6 }}><strong>Time:</strong> {slip.time_arrived} · {slip.date}</div>
-          {slip.absence_date && <div style={{ marginBottom: 6 }}><strong>Date Absent:</strong> {formatISODate(slip.absence_date)}</div>}
-          {slip.teacher_name && <div style={{ marginBottom: 6 }}><strong>Teacher:</strong> {slip.teacher_name}</div>}
+          {slip.absence_date && <div style={{ marginBottom: 6 }}><strong>Date(s) Absent:</strong> {formatAbsenceRange(slip.absence_date, slip.absence_end_date)} ({countDays(slip.absence_date, slip.absence_end_date)} day{countDays(slip.absence_date, slip.absence_end_date) > 1 ? "s" : ""})</div>}
+          {slip.teacher_name && <div style={{ marginBottom: 6 }}><strong>Adviser:</strong> {slip.teacher_name}</div>}
           {slip.reason && <div><strong>Reason:</strong> <span style={{ fontStyle: "italic", color: C.textMuted }}>"{slip.reason}"</span></div>}
         </div>
 
@@ -514,7 +526,7 @@ function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
 
         {slip.notification_sent ? (
           <div style={{ background: "rgba(16,185,129,0.1)", border: `1px solid ${C.success}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.text, marginBottom: 16 }}>
-            ✓ Teacher already notified{slip.notification_sent_at ? ` on ${new Date(slip.notification_sent_at).toLocaleString()}` : ""}.
+            ✓ Adviser already notified{slip.notification_sent_at ? ` on ${new Date(slip.notification_sent_at).toLocaleString()}` : ""}.
           </div>
         ) : slip.teacher_email ? (
           <div style={{ background: C.primaryBg, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.text, marginBottom: 16 }}>
@@ -522,13 +534,13 @@ function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
           </div>
         ) : (
           <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
-            No teacher email on file — the slip will be confirmed without a notification.
+            No adviser email on file — the slip will be confirmed without a notification.
           </div>
         )}
 
         {notifyWarning && (
           <div style={{ background: "rgba(245,158,11,0.1)", border: `1px solid ${C.warning}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.text, marginBottom: 12 }}>
-            ✅ Slip confirmed — but the teacher email didn’t go through:<br />
+            ✅ Slip confirmed — but the adviser email didn’t go through:<br />
             <span style={{ color: C.danger }}>{notifyWarning}</span><br />
             <span style={{ color: C.textMuted, fontSize: 12 }}>It’s been logged. Re-open this slip and confirm again to retry.</span>
           </div>
@@ -548,7 +560,7 @@ function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
         <PrintableSlip slip={{
           name: slip.name, student_id: slip.student_id, grade_section: slip.grade_section,
           date: slip.date, time_arrived: slip.time_arrived, teacher_name: slip.teacher_name,
-          absence_date: slip.absence_date ? formatISODate(slip.absence_date) : null,
+          absence_date: slip.absence_date ? `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${countDays(slip.absence_date, slip.absence_end_date)} day${countDays(slip.absence_date, slip.absence_end_date) > 1 ? "s" : ""})` : null,
           nature: (slip.nature || []).join(", "), meridiem: slip.meridiem, reason: slip.reason,
           sub_category: subCategory || slip.final_sub_category || slip.ai_sub_category,
           status: status || slip.status,

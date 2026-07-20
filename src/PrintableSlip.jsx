@@ -35,8 +35,8 @@ export default function PrintableSlip({ slip }) {
             <Row label="Gr. & Sec." value={grade_section} />
             <Row label="Date" value={date} />
             <Row label="Time Arrived" value={time_arrived} />
-            {absence_date && <Row label="Date Absent" value={absence_date} />}
-            <Row label="Teacher" value={teacher_name} />
+            {absence_date && <Row label="Date(s) Absent" value={absence_date} />}
+            <Row label="Adviser" value={teacher_name} />
             <Row label="Nature" value={[nature, meridiem].filter(Boolean).join("  ")} />
             <Row label="Reason" value={reason} />
             <Row label="Category" value={sub_category} />

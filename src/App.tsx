@@ -32,6 +32,18 @@ function formatISODate(iso) {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
+// Inclusive day count across an absence range ("1 day", "3 days").
+function countDays(startISO, endISO) {
+  if (!startISO) return 0;
+  const p = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  return Math.round((p(endISO || startISO) - p(startISO)) / 86400000) + 1;
+}
+// One day -> "Jul 19, 2026"; several -> "Jul 17 – Jul 19, 2026".
+function formatAbsenceRange(startISO, endISO) {
+  if (!startISO) return "";
+  if (!endISO || endISO === startISO) return formatISODate(startISO);
+  return `${formatISODate(startISO)} – ${formatISODate(endISO)}`;
+}
 function getMeridiem() {
   return new Date().getHours() < 12 ? "A.M." : "P.M.";
 }
@@ -202,9 +214,9 @@ function SlipPreview({ slip, onDone }) {
         <Field label="Name" value={slip.name} span={true} />
         <Field label="Date" value={slip.date} />
         <Field label="Time Arrived" value={slip.time_arrived} />
-        {slip.absence_date && <Field label="Date Absent" value={formatISODate(slip.absence_date)} span={true} />}
+        {slip.absence_date && <Field label="Date(s) Absent" value={`${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${countDays(slip.absence_date, slip.absence_end_date)} day${countDays(slip.absence_date, slip.absence_end_date) > 1 ? "s" : ""})`} span={true} />}
         <Field label="Gr. & Sec." value={slip.grade_section} span={true} />
-        <Field label="Teacher" value={slip.teacher_name} span={true} />
+        <Field label="Adviser" value={slip.teacher_name} span={true} />
       </div>
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6, color: C.textMuted }}>NATURE:</div>
@@ -245,7 +257,7 @@ function SlipPreview({ slip, onDone }) {
     <PrintableSlip slip={{
       name: slip.name, student_id: slip.student_id, grade_section: slip.grade_section,
       date: slip.date, time_arrived: slip.time_arrived, teacher_name: slip.teacher_name,
-      absence_date: slip.absence_date ? formatISODate(slip.absence_date) : null,
+      absence_date: slip.absence_date ? `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${countDays(slip.absence_date, slip.absence_end_date)} day${countDays(slip.absence_date, slip.absence_end_date) > 1 ? "s" : ""})` : null,
       nature: slip.category_name, meridiem: slip.meridiem, reason: slip.reason,
       sub_category: slip.ai_sub_category, status: slip.ai_status,
       document_required: slip.document_required, document_status: slip.document_status,
@@ -267,7 +279,8 @@ function Kiosk({ onStaffLogin }) {
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [reason, setReason] = useState("");
   const [meridiem, setMeridiem] = useState(getMeridiem());
-  const [absenceDate, setAbsenceDate] = useState(""); // Absent only, ISO yyyy-mm-dd
+  const [absenceDate, setAbsenceDate] = useState("");       // Absent only, ISO yyyy-mm-dd
+  const [absenceEnd, setAbsenceEnd] = useState("");         // defaults to the start date
   const [aiResult, setAiResult] = useState(null);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -291,17 +304,20 @@ function Kiosk({ onStaffLogin }) {
   function resetForm() {
     setStep("search"); setSelectedStudent(null); setSelectedCategory(null);
     setSelectedTeacher(null); setReason(""); setMeridiem(getMeridiem());
-    setAbsenceDate(""); setAiResult(null); setErrors({}); setSubmitError("");
+    setAbsenceDate(""); setAbsenceEnd(""); setAiResult(null); setErrors({}); setSubmitError("");
   }
   function validate() {
     const e = {};
     if (!selectedStudent) e.student = "Please select a student";
     if (!selectedCategory) e.category = "Select the nature of visit";
-    if (selectedCategory?.requires_teacher && !selectedTeacher) e.teacher = "Select the teacher";
+    if (selectedCategory?.requires_teacher && !selectedTeacher) e.teacher = "Select the adviser";
     if (selectedCategory?.name === "Absent") {
       // The absence already happened — today is allowed, the future is not.
-      if (!absenceDate) e.absenceDate = "Please select the date you were absent";
+      const end = absenceEnd || absenceDate;
+      if (!absenceDate) e.absenceDate = "Please select the day you were absent";
       else if (absenceDate > getTodayISO()) e.absenceDate = "The absence date cannot be in the future";
+      else if (end > getTodayISO()) e.absenceDate = "The last day cannot be in the future";
+      else if (end < absenceDate) e.absenceDate = "The last day cannot be before the first day";
     }
     if (selectedCategory?.requires_reason && (!reason.trim() || reason.trim().length < 10)) e.reason = "Please provide a reason (min 10 characters)";
     setErrors(e);
@@ -324,6 +340,7 @@ function Kiosk({ onStaffLogin }) {
       reason: reason.trim() || null, meridiem: selectedCategory.name === "Late" ? meridiem : null,
       time_arrived: getTime(), date: getToday(),
       absence_date: selectedCategory.name === "Absent" ? absenceDate : null,
+      absence_end_date: selectedCategory.name === "Absent" ? (absenceEnd || absenceDate) : null,
       ai_sub_category: aiResult?.sub_category || null, ai_status: aiResult?.status || null,
       ai_explanation: aiResult?.explanation || null, status: null,
       document_required: aiResult?.document_required || false,
@@ -426,7 +443,7 @@ function Kiosk({ onStaffLogin }) {
 
             {selectedCategory?.requires_teacher && (
               <div style={{ marginBottom: 20 }}>
-                <label style={s.label}>Teacher</label>
+                <label style={s.label}>Adviser</label>
                 {selectedTeacher ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.primaryBg, border: `1px solid ${C.primary}`, borderRadius: 8, padding: "10px 14px" }}>
                     <div>
@@ -436,7 +453,7 @@ function Kiosk({ onStaffLogin }) {
                     <button onClick={() => setSelectedTeacher(null)} style={{ background: "transparent", border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Change</button>
                   </div>
                 ) : (
-                  <SearchBox placeholder="Search teacher by name..." searchFn={searchTeachers}
+                  <SearchBox placeholder="Search adviser by name..." searchFn={searchTeachers}
                     onSelect={t => setSelectedTeacher(t)}
                     renderItem={item => (
                       <div>
@@ -449,18 +466,41 @@ function Kiosk({ onStaffLogin }) {
               </div>
             )}
 
-            {selectedCategory?.name === "Absent" && (
-              <div style={{ marginBottom: 20 }}>
-                <label style={s.label}>Date of Absence</label>
-                <input type="date" value={absenceDate} max={getTodayISO()}
-                  onChange={e => setAbsenceDate(e.target.value)}
-                  style={{ width: "100%", minHeight: T.touch, background: C.card, border: `1.5px solid ${errors.absenceDate ? C.danger : (absenceDate ? C.primary : C.border)}`, borderRadius: T.radius.md, padding: "12px 14px", fontSize: 16, color: C.text, outline: "none", boxSizing: "border-box" }} />
-                <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
-                  Pick the day you were absent. Future dates aren't allowed.
+            {selectedCategory?.name === "Absent" && (() => {
+              const dateBox = (invalid) => ({ width: "100%", minHeight: T.touch, background: C.card, border: `1.5px solid ${invalid ? C.danger : (absenceDate ? C.primary : C.border)}`, borderRadius: T.radius.md, padding: "12px 14px", fontSize: 16, color: C.text, outline: "none", boxSizing: "border-box" });
+              const days = countDays(absenceDate, absenceEnd);
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <label style={s.label}>Day(s) of Absence</label>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>FIRST DAY</div>
+                      <input type="date" value={absenceDate} max={getTodayISO()}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setAbsenceDate(v);
+                          // End defaults to the same day; keep it valid if it's now earlier.
+                          if (!absenceEnd || absenceEnd < v) setAbsenceEnd(v);
+                        }}
+                        style={dateBox(!!errors.absenceDate)} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.textLight, marginBottom: 4 }}>LAST DAY</div>
+                      <input type="date" value={absenceEnd} min={absenceDate || undefined} max={getTodayISO()}
+                        disabled={!absenceDate}
+                        onChange={e => setAbsenceEnd(e.target.value)}
+                        style={{ ...dateBox(!!errors.absenceDate), opacity: absenceDate ? 1 : 0.6 }} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6 }}>
+                    Pick the day you were absent — future dates aren't allowed.
+                    {days > 0 && <strong style={{ color: C.primary }}> {days} day{days > 1 ? "s" : ""}.</strong>}
+                    {days === 1 && " Leave the last day as-is for a one-day absence."}
+                  </div>
+                  {errors.absenceDate && <div style={s.errMsg}>{errors.absenceDate}</div>}
                 </div>
-                {errors.absenceDate && <div style={s.errMsg}>{errors.absenceDate}</div>}
-              </div>
-            )}
+              );
+            })()}
 
             {selectedCategory?.name === "Late" && (
               <div style={{ marginBottom: 20 }}>

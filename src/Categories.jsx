@@ -127,7 +127,7 @@ function CategoryModal({ initial, onSave, onClose }) {
       <div style={{ marginBottom: 12 }}><label style={labelStyle()}>Description (optional)</label>
         <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Short note shown on hover" style={inputStyle()} /></div>
       <Checkbox label="Requires a reason / explanation" checked={requiresReason} onChange={setRequiresReason} />
-      <Checkbox label="Requires selecting a teacher" checked={requiresTeacher} onChange={setRequiresTeacher} />
+      <Checkbox label="Requires selecting an adviser" checked={requiresTeacher} onChange={setRequiresTeacher} />
       <Checkbox label="Has sub-categories" checked={hasSubs} onChange={setHasSubs} />
       <Checkbox label="Active (shown on the kiosk)" checked={isActive} onChange={setIsActive} />
       <div style={{ marginBottom: 14 }}><label style={labelStyle()}>Sort order</label>
