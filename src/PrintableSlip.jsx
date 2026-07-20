@@ -15,7 +15,7 @@ function Row({ label, value }) {
 export default function PrintableSlip({ slip }) {
   const {
     name, student_id, grade_section, date, time_arrived, teacher_name,
-    nature, meridiem, reason, sub_category, status,
+    absence_date, nature, meridiem, reason, sub_category, status,
     document_required, document_status, document_deadline, confirmed_by,
   } = slip;
 
@@ -35,6 +35,7 @@ export default function PrintableSlip({ slip }) {
             <Row label="Gr. & Sec." value={grade_section} />
             <Row label="Date" value={date} />
             <Row label="Time Arrived" value={time_arrived} />
+            {absence_date && <Row label="Date Absent" value={absence_date} />}
             <Row label="Teacher" value={teacher_name} />
             <Row label="Nature" value={[nature, meridiem].filter(Boolean).join("  ")} />
             <Row label="Reason" value={reason} />

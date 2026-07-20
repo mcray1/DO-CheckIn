@@ -20,6 +20,18 @@ function getToday() {
 function getTime() {
   return new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 }
+// Local-time yyyy-mm-dd, used as the date picker's max so no future day is offered.
+function getTodayISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+// "2026-07-19" -> "Jul 19, 2026" for display (parsed as local, not UTC).
+function formatISODate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 function getMeridiem() {
   return new Date().getHours() < 12 ? "A.M." : "P.M.";
 }
@@ -190,6 +202,7 @@ function SlipPreview({ slip, onDone }) {
         <Field label="Name" value={slip.name} span={true} />
         <Field label="Date" value={slip.date} />
         <Field label="Time Arrived" value={slip.time_arrived} />
+        {slip.absence_date && <Field label="Date Absent" value={formatISODate(slip.absence_date)} span={true} />}
         <Field label="Gr. & Sec." value={slip.grade_section} span={true} />
         <Field label="Teacher" value={slip.teacher_name} span={true} />
       </div>
@@ -232,6 +245,7 @@ function SlipPreview({ slip, onDone }) {
     <PrintableSlip slip={{
       name: slip.name, student_id: slip.student_id, grade_section: slip.grade_section,
       date: slip.date, time_arrived: slip.time_arrived, teacher_name: slip.teacher_name,
+      absence_date: slip.absence_date ? formatISODate(slip.absence_date) : null,
       nature: slip.category_name, meridiem: slip.meridiem, reason: slip.reason,
       sub_category: slip.ai_sub_category, status: slip.ai_status,
       document_required: slip.document_required, document_status: slip.document_status,
@@ -253,6 +267,7 @@ function Kiosk({ onStaffLogin }) {
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [reason, setReason] = useState("");
   const [meridiem, setMeridiem] = useState(getMeridiem());
+  const [absenceDate, setAbsenceDate] = useState(""); // Absent only, ISO yyyy-mm-dd
   const [aiResult, setAiResult] = useState(null);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -276,13 +291,18 @@ function Kiosk({ onStaffLogin }) {
   function resetForm() {
     setStep("search"); setSelectedStudent(null); setSelectedCategory(null);
     setSelectedTeacher(null); setReason(""); setMeridiem(getMeridiem());
-    setAiResult(null); setErrors({}); setSubmitError("");
+    setAbsenceDate(""); setAiResult(null); setErrors({}); setSubmitError("");
   }
   function validate() {
     const e = {};
     if (!selectedStudent) e.student = "Please select a student";
     if (!selectedCategory) e.category = "Select the nature of visit";
     if (selectedCategory?.requires_teacher && !selectedTeacher) e.teacher = "Select the teacher";
+    if (selectedCategory?.name === "Absent") {
+      // The absence already happened — today is allowed, the future is not.
+      if (!absenceDate) e.absenceDate = "Please select the date you were absent";
+      else if (absenceDate > getTodayISO()) e.absenceDate = "The absence date cannot be in the future";
+    }
     if (selectedCategory?.requires_reason && (!reason.trim() || reason.trim().length < 10)) e.reason = "Please provide a reason (min 10 characters)";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -303,6 +323,7 @@ function Kiosk({ onStaffLogin }) {
       teacher_email: selectedTeacher?.email || null, nature: [selectedCategory.name],
       reason: reason.trim() || null, meridiem: selectedCategory.name === "Late" ? meridiem : null,
       time_arrived: getTime(), date: getToday(),
+      absence_date: selectedCategory.name === "Absent" ? absenceDate : null,
       ai_sub_category: aiResult?.sub_category || null, ai_status: aiResult?.status || null,
       ai_explanation: aiResult?.explanation || null, status: null,
       document_required: aiResult?.document_required || false,
@@ -425,6 +446,19 @@ function Kiosk({ onStaffLogin }) {
                     )} />
                 )}
                 {errors.teacher && <div style={s.errMsg}>{errors.teacher}</div>}
+              </div>
+            )}
+
+            {selectedCategory?.name === "Absent" && (
+              <div style={{ marginBottom: 20 }}>
+                <label style={s.label}>Date of Absence</label>
+                <input type="date" value={absenceDate} max={getTodayISO()}
+                  onChange={e => setAbsenceDate(e.target.value)}
+                  style={{ width: "100%", minHeight: T.touch, background: C.card, border: `1.5px solid ${errors.absenceDate ? C.danger : (absenceDate ? C.primary : C.border)}`, borderRadius: T.radius.md, padding: "12px 14px", fontSize: 16, color: C.text, outline: "none", boxSizing: "border-box" }} />
+                <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
+                  Pick the day you were absent. Future dates aren't allowed.
+                </div>
+                {errors.absenceDate && <div style={s.errMsg}>{errors.absenceDate}</div>}
               </div>
             )}
 

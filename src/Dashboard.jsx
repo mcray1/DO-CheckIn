@@ -15,6 +15,13 @@ function today() {
   return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+// "2026-07-19" -> "Jul 19, 2026" (parsed as local so the day doesn't shift).
+function formatISODate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = String(iso).split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 // Current school-year label, matching school_year_of() in the 20260717 migration.
 // startMonth is the admin-configured settings.school_year_start_month (default 6).
 function currentSchoolYear(startMonth = 6) {
@@ -451,6 +458,7 @@ function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
         <div style={{ background: C.bg, borderRadius: 8, padding: "12px 14px", marginBottom: 16, fontSize: 13 }}>
           <div style={{ marginBottom: 6 }}><strong>Nature:</strong> {(slip.nature || []).join(", ")} {slip.meridiem ? `(${slip.meridiem})` : ""}</div>
           <div style={{ marginBottom: 6 }}><strong>Time:</strong> {slip.time_arrived} · {slip.date}</div>
+          {slip.absence_date && <div style={{ marginBottom: 6 }}><strong>Date Absent:</strong> {formatISODate(slip.absence_date)}</div>}
           {slip.teacher_name && <div style={{ marginBottom: 6 }}><strong>Teacher:</strong> {slip.teacher_name}</div>}
           {slip.reason && <div><strong>Reason:</strong> <span style={{ fontStyle: "italic", color: C.textMuted }}>"{slip.reason}"</span></div>}
         </div>
@@ -540,6 +548,7 @@ function ConfirmModal({ slip, profile, subCategories = [], onClose, onSaved }) {
         <PrintableSlip slip={{
           name: slip.name, student_id: slip.student_id, grade_section: slip.grade_section,
           date: slip.date, time_arrived: slip.time_arrived, teacher_name: slip.teacher_name,
+          absence_date: slip.absence_date ? formatISODate(slip.absence_date) : null,
           nature: (slip.nature || []).join(", "), meridiem: slip.meridiem, reason: slip.reason,
           sub_category: subCategory || slip.final_sub_category || slip.ai_sub_category,
           status: status || slip.status,
