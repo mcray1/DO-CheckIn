@@ -119,7 +119,7 @@ export default function Reports() {
       const headers = await authHeaders();
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/admission_slips?select=id,date,created_at,name,student_id,grade_section,nature,status,` +
-        `time_arrived,meridiem,reason,final_sub_category,ai_sub_category,absence_date,absence_end_date` +
+        `time_arrived,meridiem,reason,final_sub_category,ai_sub_category,absence_date,absence_end_date,absence_days` +
         `&created_at=gte.${isoDate(lo)}&created_at=lte.${isoDate(hi)}T23:59:59&order=created_at&limit=20000`,
         { headers });
       if (!res.ok) throw new Error(await res.text());
@@ -195,7 +195,7 @@ export default function Reports() {
     return {
       name: s.name || "", section: s.grade_section || "", date: s.date || "",
       daysCovered: s.absence_date ? absenceRange(s.absence_date, s.absence_end_date) : "",
-      absences: isAbsent ? (s.absence_date ? countDays(s.absence_date, s.absence_end_date) : "✓") : "",
+      absences: isAbsent ? (s.absence_days != null ? Number(s.absence_days) : (s.absence_date ? countDays(s.absence_date, s.absence_end_date) : "✓")) : "",
       tardiness: isLate ? "✓" : "",
       time: isLate ? [s.time_arrived, s.meridiem].filter(Boolean).join(" ") : (s.time_arrived || ""),
       uniform: isUniform ? "✓" : "",

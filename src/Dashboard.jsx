@@ -35,6 +35,10 @@ function formatAbsenceRange(startISO, endISO) {
   if (!endISO || endISO === startISO) return formatISODate(startISO);
   return `${formatISODate(startISO)} – ${formatISODate(endISO)}`;
 }
+function absenceLabel(slip) {
+  const n = slip.absence_days != null ? Number(slip.absence_days) : countDays(slip.absence_date, slip.absence_end_date);
+  return `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${n} day${n === 1 ? "" : "s"})`;
+}
 
 // Current school-year label, matching school_year_of() in the 20260717 migration.
 // startMonth is the admin-configured settings.school_year_start_month (default 6).
@@ -477,7 +481,7 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
         <div style={{ background: C.bg, borderRadius: 8, padding: "12px 14px", marginBottom: 16, fontSize: 13 }}>
           <div style={{ marginBottom: 6 }}><strong>Nature:</strong> {(slip.nature || []).join(", ")} {slip.meridiem ? `(${slip.meridiem})` : ""}</div>
           <div style={{ marginBottom: 6 }}><strong>Time:</strong> {slip.time_arrived} · {slip.date}</div>
-          {slip.absence_date && <div style={{ marginBottom: 6 }}><strong>Date(s) Absent:</strong> {formatAbsenceRange(slip.absence_date, slip.absence_end_date)} ({countDays(slip.absence_date, slip.absence_end_date)} day{countDays(slip.absence_date, slip.absence_end_date) > 1 ? "s" : ""})</div>}
+          {slip.absence_date && <div style={{ marginBottom: 6 }}><strong>Date(s) Absent:</strong> {absenceLabel(slip)}</div>}
           {slip.teacher_name && <div style={{ marginBottom: 6 }}><strong>Adviser:</strong> {slip.teacher_name}</div>}
           {slip.reason && <div><strong>Reason:</strong> <span style={{ fontStyle: "italic", color: C.textMuted }}>"{slip.reason}"</span></div>}
         </div>
@@ -567,7 +571,7 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
         <PrintableSlip slip={{
           name: slip.name, student_id: slip.student_id, grade_section: slip.grade_section,
           date: slip.date, time_arrived: slip.time_arrived, teacher_name: slip.teacher_name,
-          absence_date: slip.absence_date ? `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${countDays(slip.absence_date, slip.absence_end_date)} day${countDays(slip.absence_date, slip.absence_end_date) > 1 ? "s" : ""})` : null,
+          absence_date: slip.absence_date ? absenceLabel(slip) : null,
           nature: (slip.nature || []).join(", "), meridiem: slip.meridiem, reason: slip.reason,
           sub_category: subCategory || slip.final_sub_category || slip.ai_sub_category,
           status: status || slip.status,

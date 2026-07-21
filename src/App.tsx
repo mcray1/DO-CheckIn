@@ -44,6 +44,20 @@ function formatAbsenceRange(startISO, endISO) {
   if (!endISO || endISO === startISO) return formatISODate(startISO);
   return `${formatISODate(startISO)} – ${formatISODate(endISO)}`;
 }
+// Whole days minus a half for each partial boundary (min 0.5). For a single day,
+// firstHalf alone makes it a 0.5 day.
+function computeAbsenceDays(startISO, endISO, firstHalf, lastHalf) {
+  const whole = countDays(startISO, endISO);
+  if (!whole) return 0;
+  const single = !endISO || endISO === startISO;
+  const halves = single ? (firstHalf ? 0.5 : 0) : (firstHalf ? 0.5 : 0) + (lastHalf ? 0.5 : 0);
+  return Math.max(0.5, whole - halves);
+}
+// "Jul 17 – Jul 19, 2026 (2.5 days)" — prefers the stored fractional count.
+function absenceLabel(slip) {
+  const n = slip.absence_days != null ? Number(slip.absence_days) : countDays(slip.absence_date, slip.absence_end_date);
+  return `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${n} day${n === 1 ? "" : "s"})`;
+}
 function getMeridiem() {
   return new Date().getHours() < 12 ? "A.M." : "P.M.";
 }
@@ -236,7 +250,7 @@ function SlipPreview({ slip, onDone }) {
         <Field label="Name" value={slip.name} span={true} />
         <Field label="Date" value={slip.date} />
         <Field label="Time Arrived" value={slip.time_arrived} />
-        {slip.absence_date && <Field label="Date(s) Absent" value={`${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${countDays(slip.absence_date, slip.absence_end_date)} day${countDays(slip.absence_date, slip.absence_end_date) > 1 ? "s" : ""})`} span={true} />}
+        {slip.absence_date && <Field label="Date(s) Absent" value={absenceLabel(slip)} span={true} />}
         <Field label="Gr. & Sec." value={slip.grade_section} span={true} />
         <Field label="Adviser" value={slip.teacher_name} span={true} />
       </div>
@@ -279,7 +293,7 @@ function SlipPreview({ slip, onDone }) {
     <PrintableSlip slip={{
       name: slip.name, student_id: slip.student_id, grade_section: slip.grade_section,
       date: slip.date, time_arrived: slip.time_arrived, teacher_name: slip.teacher_name,
-      absence_date: slip.absence_date ? `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${countDays(slip.absence_date, slip.absence_end_date)} day${countDays(slip.absence_date, slip.absence_end_date) > 1 ? "s" : ""})` : null,
+      absence_date: slip.absence_date ? absenceLabel(slip) : null,
       nature: slip.category_name, meridiem: slip.meridiem, reason: slip.reason,
       sub_category: slip.ai_sub_category, status: slip.ai_status,
       document_required: slip.document_required, document_status: slip.document_status,
@@ -303,6 +317,8 @@ function Kiosk({ onStaffLogin }) {
   const [meridiem, setMeridiem] = useState(getMeridiem());
   const [absenceDate, setAbsenceDate] = useState("");       // Absent only, ISO yyyy-mm-dd
   const [absenceEnd, setAbsenceEnd] = useState("");         // defaults to the start date
+  const [firstHalf, setFirstHalf] = useState(false);        // first day is a half day
+  const [lastHalf, setLastHalf] = useState(false);          // last day is a half day
   const [adviserAuto, setAdviserAuto] = useState(false);    // adviser resolved from section
   const [aiResult, setAiResult] = useState(null);
   const [errors, setErrors] = useState({});
@@ -327,7 +343,8 @@ function Kiosk({ onStaffLogin }) {
   function resetForm() {
     setStep("search"); setSelectedStudent(null); setSelectedCategory(null);
     setSelectedTeacher(null); setAdviserAuto(false); setReason(""); setMeridiem(getMeridiem());
-    setAbsenceDate(""); setAbsenceEnd(""); setAiResult(null); setErrors({}); setSubmitError("");
+    setAbsenceDate(""); setAbsenceEnd(""); setFirstHalf(false); setLastHalf(false);
+    setAiResult(null); setErrors({}); setSubmitError("");
   }
   function validate() {
     const e = {};
@@ -364,6 +381,7 @@ function Kiosk({ onStaffLogin }) {
       time_arrived: getTime(), date: getToday(),
       absence_date: selectedCategory.name === "Absent" ? absenceDate : null,
       absence_end_date: selectedCategory.name === "Absent" ? (absenceEnd || absenceDate) : null,
+      absence_days: selectedCategory.name === "Absent" ? computeAbsenceDays(absenceDate, absenceEnd, firstHalf, lastHalf) : null,
       ai_sub_category: aiResult?.sub_category || null, ai_status: aiResult?.status || null,
       ai_explanation: aiResult?.explanation || null, status: null,
       document_required: aiResult?.document_required || false,
@@ -500,7 +518,9 @@ function Kiosk({ onStaffLogin }) {
 
             {selectedCategory?.name === "Absent" && (() => {
               const dateBox = (invalid) => ({ width: "100%", minHeight: T.touch, background: C.card, border: `1.5px solid ${invalid ? C.danger : (absenceDate ? C.primary : C.border)}`, borderRadius: T.radius.md, padding: "12px 14px", fontSize: 16, color: C.text, outline: "none", boxSizing: "border-box" });
-              const days = countDays(absenceDate, absenceEnd);
+              const single = !absenceEnd || absenceEnd === absenceDate;
+              const days = computeAbsenceDays(absenceDate, absenceEnd, firstHalf, lastHalf);
+              const half = { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.text, cursor: "pointer", minHeight: T.touch };
               return (
                 <div style={{ marginBottom: 20 }}>
                   <label style={s.label}>Day(s) of Absence</label>
@@ -511,7 +531,6 @@ function Kiosk({ onStaffLogin }) {
                         onChange={e => {
                           const v = e.target.value;
                           setAbsenceDate(v);
-                          // End defaults to the same day; keep it valid if it's now earlier.
                           if (!absenceEnd || absenceEnd < v) setAbsenceEnd(v);
                         }}
                         style={dateBox(!!errors.absenceDate)} />
@@ -524,10 +543,30 @@ function Kiosk({ onStaffLogin }) {
                         style={{ ...dateBox(!!errors.absenceDate), opacity: absenceDate ? 1 : 0.6 }} />
                     </div>
                   </div>
+
+                  {absenceDate && (
+                    single ? (
+                      <label style={{ ...half, marginTop: 8 }}>
+                        <input type="checkbox" checked={firstHalf} onChange={e => setFirstHalf(e.target.checked)} style={{ width: 18, height: 18 }} />
+                        Half day only (morning or afternoon)
+                      </label>
+                    ) : (
+                      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 8 }}>
+                        <label style={half}>
+                          <input type="checkbox" checked={firstHalf} onChange={e => setFirstHalf(e.target.checked)} style={{ width: 18, height: 18 }} />
+                          First day is a half day
+                        </label>
+                        <label style={half}>
+                          <input type="checkbox" checked={lastHalf} onChange={e => setLastHalf(e.target.checked)} style={{ width: 18, height: 18 }} />
+                          Last day is a half day
+                        </label>
+                      </div>
+                    )
+                  )}
+
                   <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6 }}>
                     Pick the day you were absent — future dates aren't allowed.
-                    {days > 0 && <strong style={{ color: C.primary }}> {days} day{days > 1 ? "s" : ""}.</strong>}
-                    {days === 1 && " Leave the last day as-is for a one-day absence."}
+                    {days > 0 && <strong style={{ color: C.primary }}> {days} day{days === 1 ? "" : "s"} total.</strong>}
                   </div>
                   {errors.absenceDate && <div style={s.errMsg}>{errors.absenceDate}</div>}
                 </div>
