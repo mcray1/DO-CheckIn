@@ -6,6 +6,7 @@ import Settings from "./Settings";
 import Categories from "./Categories";
 import Roles from "./Roles";
 import Directory from "./Directory";
+import Reports from "./Reports";
 import { C, T, SEAL_SRC } from "./theme";
 
 
@@ -110,7 +111,7 @@ export default function Dashboard({ profile, onSignOut }) {
   const [perms, setPerms] = useState([]); // effective permissions from my_permissions()
   const can = (p) => perms.includes(p);
   const isSuperadmin = profile?.role === "superadmin";
-  const showTabs = isSuperadmin || can("manage_categories") || can("manage_users") || can("manage_directory") || can("manage_settings");
+  const showTabs = isSuperadmin || can("manage_categories") || can("manage_users") || can("manage_directory") || can("manage_settings") || can("view_reports");
   const effectiveViewMode = isMobile ? "card" : viewMode; // phones always use cards
 
   async function loadSlips() {
@@ -218,6 +219,7 @@ export default function Dashboard({ profile, onSignOut }) {
                 ["categories", "Categories", can("manage_categories")],
                 ["directory", "Directory", can("manage_directory")],
                 ["users", "Users", can("manage_users")],
+                ["reports", "Reports", can("view_reports")],
                 ["settings", "Settings", can("manage_settings")],
                 ["roles", "Roles", isSuperadmin],
               ].filter(([, , show]) => show).map(([id, label]) => (
@@ -238,7 +240,7 @@ export default function Dashboard({ profile, onSignOut }) {
       </div>
 
       <div style={s.main}>
-        {view === "categories" && can("manage_categories") ? <Categories /> : view === "directory" && can("manage_directory") ? <Directory /> : view === "users" && can("manage_users") ? <Users profile={profile} /> : view === "settings" && can("manage_settings") ? <Settings onChanged={loadFlags} /> : view === "roles" && isSuperadmin ? <Roles /> : <>
+        {view === "categories" && can("manage_categories") ? <Categories /> : view === "directory" && can("manage_directory") ? <Directory /> : view === "users" && can("manage_users") ? <Users profile={profile} /> : view === "settings" && can("manage_settings") ? <Settings onChanged={loadFlags} /> : view === "reports" && can("view_reports") ? <Reports /> : view === "roles" && isSuperadmin ? <Roles /> : <>
         {/* Stats — each card is a shortcut filter */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           {[
