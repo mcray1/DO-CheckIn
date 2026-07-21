@@ -415,6 +415,7 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
   const [subCategory, setSubCategory] = useState(slip.final_sub_category || slip.ai_sub_category || "");
   const [status, setStatus] = useState(slip.status || slip.ai_status || "");
   const [docStatus, setDocStatus] = useState(slip.document_status || "Not Required");
+  const [absDays, setAbsDays] = useState(slip.absence_date ? String(slip.absence_days ?? countDays(slip.absence_date, slip.absence_end_date)) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [notifyWarning, setNotifyWarning] = useState("");
@@ -439,6 +440,7 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
         confirmed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
+      if (slip.absence_date && absDays !== "") patch.absence_days = Number(absDays);
       const [updated] = await updateSlip(slip.id, patch);
 
       // Email the adviser on first confirmation (skipped when the admin has
@@ -483,6 +485,14 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
           <div style={{ marginBottom: 6 }}><strong>Nature:</strong> {(slip.nature || []).join(", ")} {slip.meridiem ? `(${slip.meridiem})` : ""}</div>
           <div style={{ marginBottom: 6 }}><strong>Time:</strong> {slip.time_arrived} · {slip.date}</div>
           {slip.absence_date && <div style={{ marginBottom: 6 }}><strong>Date(s) Absent:</strong> {absenceLabel(slip)}</div>}
+          {slip.absence_date && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <strong>Days:</strong>
+              <input type="number" min={0} step={0.5} value={absDays} onChange={e => setAbsDays(e.target.value)}
+                style={{ width: 80, border: `1.5px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 13, outline: "none" }} />
+              <span style={{ fontSize: 12, color: C.textLight }}>editable — override the computed total</span>
+            </div>
+          )}
           {slip.teacher_name && <div style={{ marginBottom: 6 }}><strong>Adviser:</strong> {slip.teacher_name}</div>}
           {slip.reason && <div><strong>Reason:</strong> <span style={{ fontStyle: "italic", color: C.textMuted }}>"{slip.reason}"</span></div>}
         </div>

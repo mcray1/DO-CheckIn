@@ -20,6 +20,8 @@ export default function Settings({ onChanged }) {
   const [startMonth, setStartMonth] = useState(6);
   const [emailOn, setEmailOn] = useState(true);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [countWeekends, setCountWeekends] = useState(false);
+  const [savingWeekends, setSavingWeekends] = useState(false);
   const [maintenanceOn, setMaintenanceOn] = useState(false);
   const [maintenanceMsg, setMaintenanceMsg] = useState("");
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,7 @@ export default function Settings({ onChanged }) {
       if (map.repeat_offender_threshold != null) setThreshold(Number(map.repeat_offender_threshold) || 3);
       if (map.school_year_start_month != null) setStartMonth(Number(map.school_year_start_month) || 6);
       setEmailOn(map.email_notifications_enabled !== false);
+      setCountWeekends(map.count_weekends === true);
       setMaintenanceOn(map.maintenance_mode === true);
       setMaintenanceMsg(typeof map.maintenance_message === "string" ? map.maintenance_message : "");
     } catch (e) {
@@ -104,6 +107,19 @@ export default function Settings({ onChanged }) {
     }
   }
 
+  async function saveWeekends(nextOn) {
+    setSavingWeekends(true); setError("");
+    try {
+      await saveSetting("count_weekends", nextOn);
+      setCountWeekends(nextOn);
+      flash(nextOn ? "Weekends now count toward absence totals." : "Weekends are excluded from absence totals.");
+    } catch (e) {
+      setError("Could not save (admins only): " + e.message);
+    } finally {
+      setSavingWeekends(false);
+    }
+  }
+
   async function saveMaintenance(nextOn) {
     setSavingMaint(true); setError("");
     try {
@@ -162,6 +178,20 @@ export default function Settings({ onChanged }) {
             {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </select>
           {savingStartMonth && <span style={{ fontSize: 13, color: C.textMuted }}>Saving...</span>}
+        </div>
+      </div>
+
+      {/* Weekend counting for absences */}
+      <div style={section}>
+        <label style={label}>Count weekends in absences</label>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5 }}>
+            When OFF (default), Saturdays and Sundays are not counted in an absence's day total. The POD can still override the number on any slip.
+          </div>
+          <button onClick={() => saveWeekends(!countWeekends)} disabled={savingWeekends || loading}
+            style={{ flexShrink: 0, background: countWeekends ? C.success : C.bg, color: countWeekends ? "#fff" : C.textMuted, border: `1px solid ${countWeekends ? C.success : C.border}`, borderRadius: 20, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: savingWeekends || loading ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
+            {savingWeekends ? "Saving..." : countWeekends ? "● ON — counting" : "○ OFF — excluded"}
+          </button>
         </div>
       </div>
 

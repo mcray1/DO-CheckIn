@@ -44,13 +44,28 @@ function formatAbsenceRange(startISO, endISO) {
   if (!endISO || endISO === startISO) return formatISODate(startISO);
   return `${formatISODate(startISO)} – ${formatISODate(endISO)}`;
 }
-// Whole days minus a half for each partial boundary (min 0.5). For a single day,
-// firstHalf alone makes it a 0.5 day.
-function computeAbsenceDays(startISO, endISO, firstHalf, lastHalf) {
-  const whole = countDays(startISO, endISO);
-  if (!whole) return 0;
+const parseISO = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const isWeekend = (dt) => dt.getDay() === 0 || dt.getDay() === 6;
+// Counted days in [start,end] — weekdays only unless weekends are included.
+function countDaysRange(startISO, endISO, includeWeekends) {
+  if (!startISO) return 0;
+  const a = parseISO(startISO), b = parseISO(endISO || startISO);
+  let n = 0;
+  for (const dt = new Date(a); dt <= b; dt.setDate(dt.getDate() + 1)) {
+    if (includeWeekends || !isWeekend(dt)) n++;
+  }
+  return n;
+}
+// Counted days minus a half for each partial boundary that is itself counted.
+// For a single day, firstHalf alone makes it a 0.5 day.
+function computeAbsenceDays(startISO, endISO, firstHalf, lastHalf, includeWeekends) {
+  const whole = countDaysRange(startISO, endISO, includeWeekends);
+  if (!whole) return 0; // e.g. a lone weekend day when weekends aren't counted
   const single = !endISO || endISO === startISO;
-  const halves = single ? (firstHalf ? 0.5 : 0) : (firstHalf ? 0.5 : 0) + (lastHalf ? 0.5 : 0);
+  const counted = (iso) => includeWeekends || !isWeekend(parseISO(iso));
+  let halves = 0;
+  if (firstHalf && counted(startISO)) halves += 0.5;
+  if (!single && lastHalf && counted(endISO)) halves += 0.5;
   return Math.max(0.5, whole - halves);
 }
 // Which half(s) a partial absence covers, e.g. "morning" or "first day
@@ -98,13 +113,13 @@ async function fetchSubCategories() {
 // Fails open — any error leaves the kiosk available.
 async function fetchMaintenance() {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=in.(maintenance_mode,maintenance_message)&select=key,value`, { headers: sbHeaders });
-    if (!res.ok) return { on: false, message: "" };
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=in.(maintenance_mode,maintenance_message,count_weekends)&select=key,value`, { headers: sbHeaders });
+    if (!res.ok) return { on: false, message: "", countWeekends: false };
     const rows = await res.json();
     const map = {};
     for (const r of rows) map[r.key] = r.value;
-    return { on: map.maintenance_mode === true, message: typeof map.maintenance_message === "string" ? map.maintenance_message : "" };
-  } catch { return { on: false, message: "" }; }
+    return { on: map.maintenance_mode === true, message: typeof map.maintenance_message === "string" ? map.maintenance_message : "", countWeekends: map.count_weekends === true };
+  } catch { return { on: false, message: "", countWeekends: false }; }
 }
 async function searchStudents(query) {
   if (!query || query.trim().length < 2) return [];
@@ -395,7 +410,7 @@ function Kiosk({ onStaffLogin }) {
       time_arrived: getTime(), date: getToday(),
       absence_date: selectedCategory.name === "Absent" ? absenceDate : null,
       absence_end_date: selectedCategory.name === "Absent" ? (absenceEnd || absenceDate) : null,
-      absence_days: selectedCategory.name === "Absent" ? computeAbsenceDays(absenceDate, absenceEnd, firstHalf, lastHalf) : null,
+      absence_days: selectedCategory.name === "Absent" ? computeAbsenceDays(absenceDate, absenceEnd, firstHalf, lastHalf, maintenance.countWeekends) : null,
       absence_half: selectedCategory.name === "Absent" ? absenceHalfNote(absenceDate, absenceEnd, firstHalf, firstWhich, lastHalf, lastWhich) : null,
       ai_sub_category: aiResult?.sub_category || null, ai_status: aiResult?.status || null,
       ai_explanation: aiResult?.explanation || null, status: null,
@@ -534,7 +549,7 @@ function Kiosk({ onStaffLogin }) {
             {selectedCategory?.name === "Absent" && (() => {
               const dateBox = (invalid) => ({ width: "100%", minHeight: T.touch, background: C.card, border: `1.5px solid ${invalid ? C.danger : (absenceDate ? C.primary : C.border)}`, borderRadius: T.radius.md, padding: "12px 14px", fontSize: 16, color: C.text, outline: "none", boxSizing: "border-box" });
               const single = !absenceEnd || absenceEnd === absenceDate;
-              const days = computeAbsenceDays(absenceDate, absenceEnd, firstHalf, lastHalf);
+              const days = computeAbsenceDays(absenceDate, absenceEnd, firstHalf, lastHalf, maintenance.countWeekends);
               const half = { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.text, cursor: "pointer", minHeight: T.touch };
               const AmPm = ({ which, setWhich }) => (
                 <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
@@ -598,6 +613,7 @@ function Kiosk({ onStaffLogin }) {
 
                   <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6 }}>
                     Pick the day you were absent — future dates aren't allowed.
+                    {!maintenance.countWeekends && " Weekends aren't counted."}
                     {days > 0 && <strong style={{ color: C.primary }}> {days} day{days === 1 ? "" : "s"} total.</strong>}
                   </div>
                   {errors.absenceDate && <div style={s.errMsg}>{errors.absenceDate}</div>}
