@@ -67,9 +67,20 @@ async function authHeaders() {
 function csvEscape(v) { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function downloadCSV(name, matrix) {
   const csv = matrix.map(r => r.map(csvEscape).join(",")).join("\r\n");
+  // Lead with a UTF-8 BOM so Excel reads en-dashes, middot and ✓ correctly
+  // instead of mangling them (it defaults to Windows-1252 for CSV).
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  a.href = URL.createObjectURL(new Blob(["﻿", csv], { type: "text/csv;charset=utf-8;" }));
   a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+
+// Excel sheet names: <=31 chars, none of []:*?/\, and unique.
+function sheetName(raw, used) {
+  let n = String(raw || "Sheet").replace(/[[\]:*?/\\]/g, " ").trim().slice(0, 31) || "Sheet";
+  let base = n, i = 2;
+  while (used.has(n.toLowerCase())) { const suf = ` (${i++})`; n = base.slice(0, 31 - suf.length) + suf; }
+  used.add(n.toLowerCase());
+  return n;
 }
 
 export default function Reports() {
@@ -84,6 +95,7 @@ export default function Reports() {
   const [slips, setSlips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [xlsxBusy, setXlsxBusy] = useState(false);
 
   function windowRange() {
     const now = midnight(new Date());
@@ -209,6 +221,53 @@ export default function Reports() {
     ]);
   }
 
+  const FLAT_HEAD = ["NAME OF STUDENT", "YEAR & SECTION", "DATE FILED", "DAYS COVERED", "ABSENCES", "TARDINESS", "TIME", "UNIFORM", "STATUS", "REASONS"];
+
+  // One workbook, one worksheet per section (grouped from the scoped rows), laid
+  // out like the paper sheet with merged title/band cells. xlsx is loaded on
+  // demand so it never weighs down normal use.
+  async function exportMonitoringExcel() {
+    const XLSX = await import("xlsx");
+    const bySection = {};
+    for (const s of scoped) {
+      const sec = (s.grade_section || "(no section)").trim() || "(no section)";
+      (bySection[sec] ||= []).push(s);
+    }
+    const wb = XLSX.utils.book_new();
+    const used = new Set();
+    for (const sec of Object.keys(bySection).sort()) {
+      const rows = bySection[sec];
+      const aoa = [
+        ["ATENEO DE ILOILO – SMCS · DISCIPLINE OFFICE"],
+        ["Admission Slip Monitoring Sheet"],
+        [`${sec} · ${rangeText}`],
+        [],
+        [...Array(10).fill(""), "lateness", "", "", "", "", "", "absences", "", "", "", "", ""],
+        [...FLAT_HEAD, ...REASON_COLS, ...REASON_COLS],
+      ];
+      for (const s of rows) {
+        const r = monitoringRow(s);
+        // Reason tallies as real numbers so the school can SUM each column.
+        const late = r.lateCols.map(v => v ? 1 : "");
+        const abs = r.absCols.map(v => v ? 1 : "");
+        aoa.push([r.name, r.section, r.date, r.daysCovered, r.absences, r.tardiness, r.time, r.uniform, r.status, r.reasons, ...late, ...abs]);
+      }
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws["!merges"] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 21 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 21 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 21 } },
+        { s: { r: 4, c: 10 }, e: { r: 4, c: 15 } }, // lateness band
+        { s: { r: 4, c: 16 }, e: { r: 4, c: 21 } }, // absences band
+      ];
+      ws["!cols"] = [{ wch: 28 }, { wch: 18 }, { wch: 11 }, { wch: 18 }, { wch: 9 }, { wch: 9 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 24 },
+        ...Array(12).fill({ wch: 6 })];
+      XLSX.utils.book_append_sheet(wb, ws, sheetName(sec, used));
+    }
+    const tag = scopeType === "all" ? "all" : (scopeValue || "scope").replace(/[^a-z0-9]+/gi, "-");
+    XLSX.writeFile(wb, `monitoring-sheet-${tag}-${isoDate(winFrom)}.xlsx`);
+  }
+
   return (
     <div style={panel}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
@@ -271,8 +330,15 @@ export default function Reports() {
           <button onClick={exportSummary} disabled={sumRows.length === 0}
             style={{ background: sumRows.length ? C.primary : C.textLight, color: "#fff", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 13, cursor: sumRows.length ? "pointer" : "not-allowed", fontWeight: 700 }}>⬇ Export CSV</button>
         ) : (
-          <button onClick={exportMonitoring} disabled={monRows.length === 0}
-            style={{ background: monRows.length ? C.primary : C.textLight, color: "#fff", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 13, cursor: monRows.length ? "pointer" : "not-allowed", fontWeight: 700 }}>⬇ Export CSV</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={exportMonitoring} disabled={monRows.length === 0}
+              style={{ background: C.card, color: monRows.length ? C.primary : C.textLight, border: `1px solid ${monRows.length ? C.primary : C.border}`, borderRadius: 6, padding: "8px 14px", fontSize: 13, cursor: monRows.length ? "pointer" : "not-allowed", fontWeight: 700 }}>⬇ CSV</button>
+            <button onClick={() => { setXlsxBusy(true); exportMonitoringExcel().catch(e => setError("Excel export failed: " + e.message)).finally(() => setXlsxBusy(false)); }}
+              disabled={monRows.length === 0 || xlsxBusy}
+              style={{ background: monRows.length && !xlsxBusy ? C.primary : C.textLight, color: "#fff", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 13, cursor: monRows.length && !xlsxBusy ? "pointer" : "not-allowed", fontWeight: 700 }}>
+              {xlsxBusy ? "Building…" : "⬇ Excel (tabs per section)"}
+            </button>
+          </div>
         )}
       </div>
 
