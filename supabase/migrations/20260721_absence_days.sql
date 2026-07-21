@@ -6,3 +6,11 @@ alter table admission_slips
 
 comment on column admission_slips.absence_days is
   'Fractional day count for an absence (e.g. 3.5). NULL for non-absence slips.';
+
+-- Which half a partial day covers, e.g. "morning", "afternoon", or for a range
+-- "first day afternoon, last day morning". NULL when no day is a half day.
+alter table admission_slips
+  add column if not exists absence_half text;
+
+comment on column admission_slips.absence_half is
+  'Human-readable note of which half(s) a partial absence covers.';

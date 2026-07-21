@@ -53,10 +53,21 @@ function computeAbsenceDays(startISO, endISO, firstHalf, lastHalf) {
   const halves = single ? (firstHalf ? 0.5 : 0) : (firstHalf ? 0.5 : 0) + (lastHalf ? 0.5 : 0);
   return Math.max(0.5, whole - halves);
 }
-// "Jul 17 – Jul 19, 2026 (2.5 days)" — prefers the stored fractional count.
+// Which half(s) a partial absence covers, e.g. "morning" or "first day
+// afternoon, last day morning". null when no boundary is a half day.
+function absenceHalfNote(startISO, endISO, firstHalf, firstWhich, lastHalf, lastWhich) {
+  const single = !endISO || endISO === startISO;
+  if (single) return firstHalf ? firstWhich : null;
+  const parts = [];
+  if (firstHalf) parts.push(`first day ${firstWhich}`);
+  if (lastHalf) parts.push(`last day ${lastWhich}`);
+  return parts.length ? parts.join(", ") : null;
+}
+// "Jul 17 – Jul 19, 2026 (2.5 days, first day afternoon)" — with the half note.
 function absenceLabel(slip) {
   const n = slip.absence_days != null ? Number(slip.absence_days) : countDays(slip.absence_date, slip.absence_end_date);
-  return `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${n} day${n === 1 ? "" : "s"})`;
+  const half = slip.absence_half ? `, ${slip.absence_half}` : "";
+  return `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${n} day${n === 1 ? "" : "s"}${half})`;
 }
 function getMeridiem() {
   return new Date().getHours() < 12 ? "A.M." : "P.M.";
@@ -318,7 +329,9 @@ function Kiosk({ onStaffLogin }) {
   const [absenceDate, setAbsenceDate] = useState("");       // Absent only, ISO yyyy-mm-dd
   const [absenceEnd, setAbsenceEnd] = useState("");         // defaults to the start date
   const [firstHalf, setFirstHalf] = useState(false);        // first day is a half day
+  const [firstWhich, setFirstWhich] = useState("morning");  // which half of the first day
   const [lastHalf, setLastHalf] = useState(false);          // last day is a half day
+  const [lastWhich, setLastWhich] = useState("afternoon");  // which half of the last day
   const [adviserAuto, setAdviserAuto] = useState(false);    // adviser resolved from section
   const [aiResult, setAiResult] = useState(null);
   const [errors, setErrors] = useState({});
@@ -344,6 +357,7 @@ function Kiosk({ onStaffLogin }) {
     setStep("search"); setSelectedStudent(null); setSelectedCategory(null);
     setSelectedTeacher(null); setAdviserAuto(false); setReason(""); setMeridiem(getMeridiem());
     setAbsenceDate(""); setAbsenceEnd(""); setFirstHalf(false); setLastHalf(false);
+    setFirstWhich("morning"); setLastWhich("afternoon");
     setAiResult(null); setErrors({}); setSubmitError("");
   }
   function validate() {
@@ -382,6 +396,7 @@ function Kiosk({ onStaffLogin }) {
       absence_date: selectedCategory.name === "Absent" ? absenceDate : null,
       absence_end_date: selectedCategory.name === "Absent" ? (absenceEnd || absenceDate) : null,
       absence_days: selectedCategory.name === "Absent" ? computeAbsenceDays(absenceDate, absenceEnd, firstHalf, lastHalf) : null,
+      absence_half: selectedCategory.name === "Absent" ? absenceHalfNote(absenceDate, absenceEnd, firstHalf, firstWhich, lastHalf, lastWhich) : null,
       ai_sub_category: aiResult?.sub_category || null, ai_status: aiResult?.status || null,
       ai_explanation: aiResult?.explanation || null, status: null,
       document_required: aiResult?.document_required || false,
@@ -521,6 +536,14 @@ function Kiosk({ onStaffLogin }) {
               const single = !absenceEnd || absenceEnd === absenceDate;
               const days = computeAbsenceDays(absenceDate, absenceEnd, firstHalf, lastHalf);
               const half = { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.text, cursor: "pointer", minHeight: T.touch };
+              const AmPm = ({ which, setWhich }) => (
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  {["morning", "afternoon"].map(w => (
+                    <button key={w} type="button" onClick={() => setWhich(w)}
+                      style={{ padding: "6px 12px", minHeight: 36, border: `1.5px solid ${which === w ? C.primary : C.border}`, background: which === w ? C.primaryBg : C.card, color: which === w ? C.primary : C.textMuted, borderRadius: T.radius.md, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "capitalize" }}>{w}</button>
+                  ))}
+                </div>
+              );
               return (
                 <div style={{ marginBottom: 20 }}>
                   <label style={s.label}>Day(s) of Absence</label>
@@ -546,20 +569,29 @@ function Kiosk({ onStaffLogin }) {
 
                   {absenceDate && (
                     single ? (
-                      <label style={{ ...half, marginTop: 8 }}>
-                        <input type="checkbox" checked={firstHalf} onChange={e => setFirstHalf(e.target.checked)} style={{ width: 18, height: 18 }} />
-                        Half day only (morning or afternoon)
-                      </label>
-                    ) : (
-                      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 8 }}>
+                      <div style={{ marginTop: 8 }}>
                         <label style={half}>
                           <input type="checkbox" checked={firstHalf} onChange={e => setFirstHalf(e.target.checked)} style={{ width: 18, height: 18 }} />
-                          First day is a half day
+                          Half day only
                         </label>
-                        <label style={half}>
-                          <input type="checkbox" checked={lastHalf} onChange={e => setLastHalf(e.target.checked)} style={{ width: 18, height: 18 }} />
-                          Last day is a half day
-                        </label>
+                        {firstHalf && <AmPm which={firstWhich} setWhich={setFirstWhich} />}
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginTop: 8 }}>
+                        <div>
+                          <label style={half}>
+                            <input type="checkbox" checked={firstHalf} onChange={e => setFirstHalf(e.target.checked)} style={{ width: 18, height: 18 }} />
+                            First day is a half day
+                          </label>
+                          {firstHalf && <AmPm which={firstWhich} setWhich={setFirstWhich} />}
+                        </div>
+                        <div>
+                          <label style={half}>
+                            <input type="checkbox" checked={lastHalf} onChange={e => setLastHalf(e.target.checked)} style={{ width: 18, height: 18 }} />
+                            Last day is a half day
+                          </label>
+                          {lastHalf && <AmPm which={lastWhich} setWhich={setLastWhich} />}
+                        </div>
                       </div>
                     )
                   )}

@@ -37,7 +37,8 @@ function formatAbsenceRange(startISO, endISO) {
 }
 function absenceLabel(slip) {
   const n = slip.absence_days != null ? Number(slip.absence_days) : countDays(slip.absence_date, slip.absence_end_date);
-  return `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${n} day${n === 1 ? "" : "s"})`;
+  const half = slip.absence_half ? `, ${slip.absence_half}` : "";
+  return `${formatAbsenceRange(slip.absence_date, slip.absence_end_date)} (${n} day${n === 1 ? "" : "s"}${half})`;
 }
 
 // Current school-year label, matching school_year_of() in the 20260717 migration.
