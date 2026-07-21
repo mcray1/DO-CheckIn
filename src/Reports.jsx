@@ -64,11 +64,14 @@ async function authHeaders() {
   return { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token || SUPABASE_ANON_KEY}`, "Content-Type": "application/json" };
 }
 
-function csvEscape(v) { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+// Fold the handful of non-ASCII glyphs we emit down to plain ASCII so a CSV
+// can't be garbled by Excel regardless of how it guesses the encoding.
+const ASCII_MAP = { "–": "-", "—": "-", "·": "-", "•": "-", "✓": "1", "’": "'", "“": '"', "”": '"' };
+const toAscii = (v) => String(v ?? "").replace(/[–—·•✓’“”]/g, c => ASCII_MAP[c] || c);
+function csvEscape(v) { const s = toAscii(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function downloadCSV(name, matrix) {
   const csv = matrix.map(r => r.map(csvEscape).join(",")).join("\r\n");
-  // Lead with a UTF-8 BOM so Excel reads en-dashes, middot and ✓ correctly
-  // instead of mangling them (it defaults to Windows-1252 for CSV).
+  // Belt-and-braces: BOM so Excel picks UTF-8, and the cells are already ASCII.
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿", csv], { type: "text/csv;charset=utf-8;" }));
   a.download = name; a.click(); URL.revokeObjectURL(a.href);
