@@ -19,26 +19,47 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+// Only the school's own site may call this from a browser. Access-Control-Allow-
+// Origin takes a single value, so the caller's origin is echoed back when it is
+// on the allowlist and otherwise falls back to the canonical site (which makes
+// the browser block the response). Add extra origins — e.g. a local dev server —
+// via the CORS_ORIGINS env var, comma-separated.
+const DEFAULT_ORIGINS = ["https://adi.edu.ph", "https://www.adi.edu.ph"];
+const ALLOWED_ORIGINS = [
+  ...DEFAULT_ORIGINS,
+  ...(Deno.env.get("CORS_ORIGINS") || "").split(",").map((o) => o.trim()).filter(Boolean),
+];
+
+function corsFor(origin: string | null) {
+  const allow = origin && ALLOWED_ORIGINS.includes(origin) ? origin : DEFAULT_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Vary": "Origin", // responses differ per origin; don't let a cache cross them
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
 
 const RANK: Record<string, number> = { superadmin: 3, pod_admin: 2, pod_staff: 1, faculty: 0 };
 const ASSIGNABLE = new Set(["pod_admin", "pod_staff", "faculty"]); // superadmin intentionally excluded
 const ALLOWED_DOMAIN = "@adi.edu.ph";
 const MIN_PASSWORD = 8;
 
-function json(body: unknown, status = 200) {
+function jsonCors(body: unknown, status = 200, origin: string | null = null) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsFor(origin), "Content-Type": "application/json" },
   });
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Per-request CORS. `json` shadows the module helper so every existing call
+  // site below answers with headers scoped to this caller's origin.
+  const origin = req.headers.get("Origin");
+  const cors = corsFor(origin);
+  const json = (body: unknown, status = 200) => jsonCors(body, status, origin);
+
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;

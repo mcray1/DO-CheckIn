@@ -21,16 +21,31 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 const STAFF_ROLES = new Set(["pod_staff", "pod_admin", "superadmin"]);
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+// Only the school's own site may call this from a browser. Access-Control-Allow-
+// Origin takes a single value, so the caller's origin is echoed back when it is
+// on the allowlist and otherwise falls back to the canonical site (which makes
+// the browser block the response). Add extra origins — e.g. a local dev server —
+// via the CORS_ORIGINS env var, comma-separated.
+const DEFAULT_ORIGINS = ["https://adi.edu.ph", "https://www.adi.edu.ph"];
+const ALLOWED_ORIGINS = [
+  ...DEFAULT_ORIGINS,
+  ...(Deno.env.get("CORS_ORIGINS") || "").split(",").map((o) => o.trim()).filter(Boolean),
+];
 
-function json(body: unknown, status = 200) {
+function corsFor(origin: string | null) {
+  const allow = origin && ALLOWED_ORIGINS.includes(origin) ? origin : DEFAULT_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Vary": "Origin", // responses differ per origin; don't let a cache cross them
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
+
+function jsonCors(body: unknown, status = 200, origin: string | null = null) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsFor(origin), "Content-Type": "application/json" },
   });
 }
 
@@ -121,7 +136,13 @@ function buildRawEmail(to: string, subject: string, htmlBody: string): string {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Per-request CORS. `json` shadows the module helper so every existing call
+  // site below answers with headers scoped to this caller's origin.
+  const origin = req.headers.get("Origin");
+  const cors = corsFor(origin);
+  const json = (body: unknown, status = 200) => jsonCors(body, status, origin);
+
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
 
   // ── Authenticate + authorise the caller ──
