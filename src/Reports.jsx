@@ -68,7 +68,18 @@ async function authHeaders() {
 // can't be garbled by Excel regardless of how it guesses the encoding.
 const ASCII_MAP = { "–": "-", "—": "-", "·": "-", "•": "-", "✓": "1", "’": "'", "“": '"', "”": '"' };
 const toAscii = (v) => String(v ?? "").replace(/[–—·•✓’“”]/g, c => ASCII_MAP[c] || c);
-function csvEscape(v) { const s = toAscii(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+
+// Spreadsheet formula injection: a cell beginning =, +, -, @ (or a tab/CR that
+// Excel strips before parsing) is executed as a formula on open. Slip text is
+// student-typed, so neutralise it with a leading apostrophe — Excel shows the
+// literal text and never evaluates it. Applied to CSV *and* xlsx exports.
+function deFormula(v) {
+  const s = String(v ?? "");
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+// Numbers stay numeric (so SUM works); only text is guarded.
+const safeCell = (v) => (typeof v === "number" ? v : deFormula(v));
+function csvEscape(v) { const s = deFormula(toAscii(v)); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function downloadCSV(name, matrix) {
   const csv = matrix.map(r => r.map(csvEscape).join(",")).join("\r\n");
   // Belt-and-braces: BOM so Excel picks UTF-8, and the cells are already ASCII.
@@ -253,7 +264,7 @@ export default function Reports() {
         // Reason tallies as real numbers so the school can SUM each column.
         const late = r.lateCols.map(v => v ? 1 : "");
         const abs = r.absCols.map(v => v ? 1 : "");
-        aoa.push([r.name, r.section, r.date, r.daysCovered, r.absences, r.tardiness, r.time, r.uniform, r.status, r.reasons, ...late, ...abs]);
+        aoa.push([r.name, r.section, r.date, r.daysCovered, r.absences, r.tardiness, r.time, r.uniform, r.status, r.reasons, ...late, ...abs].map(safeCell));
       }
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws["!merges"] = [
