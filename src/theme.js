@@ -94,6 +94,53 @@ export const GOLD = T.color.gold;
 // School seal, served from public/. BASE_URL keeps it correct under the /pod/ subpath.
 export const SEAL_SRC = import.meta.env.BASE_URL + "seal.png";
 
+// ── Category colours ─────────────────────────────────────────────
+// The kiosk's "Nature of Visit" buttons are the one place we deliberately break
+// the restrained palette: students need to spot the right button fast. Every
+// colour below clears WCAG AA (>=4.5:1) as text on white AND takes white text
+// when filled, so the buttons stay legible either way.
+//
+// Categories are admin-editable, so unknown names fall back to a deterministic
+// hash — a new category gets a stable colour without anyone picking one.
+const CATEGORY_PALETTE = [
+  "#C62828", // red
+  "#B25000", // orange
+  "#2E7D32", // green
+  "#00695C", // teal
+  "#1565C0", // blue
+  "#3949AB", // indigo
+  "#6A1B9A", // purple
+  "#AD1457", // pink
+  "#5D4037", // brown
+  "#455A64", // blue-grey
+];
+
+// Keyed on a lowercase substring so "Late Arrival" still matches "late".
+const CATEGORY_KNOWN = [
+  ["late", { color: "#B25000", icon: "⏰" }],
+  ["absent", { color: "#1565C0", icon: "📅" }],
+  ["uniform", { color: "#00695C", icon: "👔" }],
+  ["hair", { color: "#6A1B9A", icon: "✂️" }],
+  ["gadget", { color: "#3949AB", icon: "📱" }],
+  ["post", { color: "#5D4037", icon: "📋" }],
+  ["suspen", { color: "#C62828", icon: "⛔" }],
+  ["other", { color: "#455A64", icon: "❓" }],
+];
+
+function hashIndex(str, len) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h % len;
+}
+
+// -> { color, tint, icon } for a category name.
+export function categoryVisual(name) {
+  const n = String(name || "").toLowerCase();
+  const hit = CATEGORY_KNOWN.find(([k]) => n.includes(k));
+  const color = hit ? hit[1].color : CATEGORY_PALETTE[hashIndex(n, CATEGORY_PALETTE.length)];
+  return { color, tint: color + "14", icon: hit ? hit[1].icon : "•" };
+}
+
 // ── Style helpers ────────────────────────────────────────────────
 // Buttons meet the 44px touch target and use the 8px radius.
 export function button(variant = "primary", opts = {}) {

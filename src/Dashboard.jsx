@@ -7,7 +7,7 @@ import Categories from "./Categories";
 import Roles from "./Roles";
 import Directory from "./Directory";
 import Reports from "./Reports";
-import { C, T, SEAL_SRC } from "./theme";
+import { C, T, SEAL_SRC, categoryVisual } from "./theme";
 
 
 const STATUS_OPTIONS = ["Excused", "Unexcused", "Admit Temporarily"];
@@ -362,7 +362,7 @@ function TableView({ slips, onOpen, flagged = {}, canConfirm = true }) {
               <td style={{ padding: "12px", fontWeight: 600, whiteSpace: "nowrap" }}>{sl.name}{flagged[sl.student_id] && <RepeatFlag info={flagged[sl.student_id]} />}</td>
               <td style={{ padding: "12px", color: C.textMuted, whiteSpace: "nowrap" }}>{sl.grade_section}</td>
               <td style={{ padding: "12px" }}>
-                {(sl.nature || []).map(n => <span key={n} style={{ background: C.primaryBg, color: C.primary, borderRadius: 4, padding: "2px 7px", fontSize: 11, fontWeight: 700, marginRight: 4 }}>{n}</span>)}
+                {(sl.nature || []).map(n => { const v = categoryVisual(n); return <span key={n} style={{ background: v.tint, color: v.color, border: `1px solid ${v.color}`, borderRadius: 4, padding: "2px 7px", fontSize: 11, fontWeight: 700, marginRight: 4 }}>{n}</span>; })}
               </td>
               <td style={{ padding: "12px", color: C.textMuted, fontStyle: "italic", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sl.reason || "—"}</td>
               <td style={{ padding: "12px", fontSize: 12, color: C.textMuted }}>{sl.ai_sub_category ? `${sl.ai_sub_category} · ${sl.ai_status}` : "—"}</td>
@@ -395,7 +395,7 @@ function CardView({ slips, onOpen, flagged = {}, canConfirm = true }) {
             <StatusPill status={sl.status} />
           </div>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
-            {(sl.nature || []).map(n => <span key={n} style={{ background: C.primaryBg, color: C.primary, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{n}</span>)}
+            {(sl.nature || []).map(n => { const v = categoryVisual(n); return <span key={n} style={{ background: v.tint, color: v.color, border: `1px solid ${v.color}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{n}</span>; })}
             <span style={{ fontSize: 12, color: C.textMuted }}>{sl.time_arrived} · {sl.date}</span>
           </div>
           {sl.reason && <div style={{ fontSize: 13, color: C.textMuted, fontStyle: "italic", marginBottom: 8, lineHeight: 1.4 }}>"{sl.reason}"</div>}

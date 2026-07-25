@@ -4,7 +4,7 @@ import Login from "./Login";
 import Dashboard from "./Dashboard";
 import ChangePassword from "./ChangePassword";
 import PrintableSlip from "./PrintableSlip";
-import { C, NAVY, GOLD, T, SEAL_SRC } from "./theme";
+import { C, NAVY, GOLD, T, SEAL_SRC, categoryVisual } from "./theme";
 
 const sbHeaders = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
 
@@ -435,7 +435,18 @@ function Kiosk({ onStaffLogin }) {
     card: { background: C.card, borderRadius: 16, padding: "36px 40px", width: "100%", maxWidth: 580, boxShadow: "0 10px 40px rgba(15,23,42,0.08)", border: `1px solid ${C.border}` },
     label: { fontSize: 12, fontWeight: 700, letterSpacing: 0.8, color: C.textMuted, textTransform: "uppercase", marginBottom: 8, display: "block" },
     errMsg: { fontSize: 12, color: C.danger, marginTop: 5 },
-    catBtn: (active) => ({ padding: "14px 10px", border: `2px solid ${active ? C.primary : C.border}`, background: active ? C.primaryBg : C.card, color: active ? C.primary : C.textMuted, borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "center" }),
+    // Colour comes from the category itself so students can aim for a colour,
+    // not read every label. Selected = filled; unselected = soft tint.
+    catBtn: (active, color) => ({
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+      padding: "14px 8px", minHeight: 84,
+      border: `2px solid ${color}`,
+      background: active ? color : color + "14",
+      color: active ? "#fff" : color,
+      borderRadius: T.radius.md, fontWeight: 700, fontSize: 13, cursor: "pointer", textAlign: "center",
+      boxShadow: active ? T.elevation.sm : "none",
+      transition: "background-color 180ms ease, color 180ms ease",
+    }),
   };
 
   return (
@@ -506,12 +517,19 @@ function Kiosk({ onStaffLogin }) {
 
             <div style={{ marginBottom: 20 }}>
               <label style={s.label}>Nature of Visit</label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-                {categories.map(cat => (
-                  <button key={cat.id} style={s.catBtn(selectedCategory?.id === cat.id)}
-                    onClick={() => { setSelectedCategory(cat); if (cat.name !== "Late") setMeridiem(getMeridiem()); }}
-                    title={cat.description || ""}>{cat.name}</button>
-                ))}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 10 }}>
+                {categories.map(cat => {
+                  const v = categoryVisual(cat.name);
+                  const active = selectedCategory?.id === cat.id;
+                  return (
+                    <button key={cat.id} style={s.catBtn(active, v.color)}
+                      onClick={() => { setSelectedCategory(cat); if (cat.name !== "Late") setMeridiem(getMeridiem()); }}
+                      title={cat.description || ""}>
+                      <span style={{ fontSize: 26, lineHeight: 1 }} aria-hidden="true">{v.icon}</span>
+                      <span>{cat.name}</span>
+                    </button>
+                  );
+                })}
               </div>
               {errors.category && <div style={s.errMsg}>{errors.category}</div>}
             </div>
