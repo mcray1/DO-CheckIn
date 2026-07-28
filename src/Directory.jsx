@@ -569,7 +569,9 @@ function ImportPanel({ onDone, onClose }) {
     const grid = parseCSV(raw);
     if (grid.length < 2) { setErr("Need a header row plus at least one student."); return; }
     const map = mapHeaders(grid[0]);
-    const missing = ["student_no", "name"].filter(k => map[k] === undefined);
+    // Only the match key is mandatory — a partial file (e.g. student no. +
+    // email) is a valid update. Name is needed only to create new students.
+    const missing = ["student_no"].filter(k => map[k] === undefined);
     const rows = grid.slice(1).map(r => {
       const o = {};
       for (const [field, idx] of Object.entries(map)) {
@@ -577,8 +579,8 @@ function ImportPanel({ onDone, onClose }) {
         o[field] = v === "" ? null : v;
       }
       return o;
-    }).filter(o => o.student_no && o.name);
-    setParsed({ rows, map, missing, detected: Object.keys(map) });
+    }).filter(o => o.student_no);
+    setParsed({ rows, map, missing, detected: Object.keys(map), hasName: map.name !== undefined });
   }
 
   function onFile(e) {
@@ -595,7 +597,10 @@ function ImportPanel({ onDone, onClose }) {
     try {
       const CHUNK = 200;
       for (let i = 0; i < parsed.rows.length; i += CHUNK) {
-        const batch = parsed.rows.slice(i, i + CHUNK).map(r => ({ ...r, is_active: true }));
+        // Only a full roster (with names) asserts who is enrolled; a partial
+        // update leaves is_active alone so it can't resurrect former students.
+        const batch = parsed.rows.slice(i, i + CHUNK)
+          .map(r => (parsed.hasName ? { ...r, is_active: true } : { ...r }));
         await upsertStudents(batch);
         setProgress(`Imported ${Math.min(i + CHUNK, parsed.rows.length)} of ${parsed.rows.length}...`);
       }
@@ -627,6 +632,11 @@ function ImportPanel({ onDone, onClose }) {
             <>
               <div><strong>{parsed.rows.length}</strong> student rows ready.</div>
               <div style={{ color: C.textMuted, marginTop: 4 }}>Columns detected: {parsed.detected.join(", ")}</div>
+              {!parsed.hasName && (
+                <div style={{ color: C.textMuted, marginTop: 6, lineHeight: 1.5 }}>
+                  No name column — this updates existing students only (matched on student number). Rows for unknown student numbers will be skipped by the database.
+                </div>
+              )}
             </>
           )}
         </div>
