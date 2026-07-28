@@ -473,6 +473,7 @@ const COLUMN_ALIASES = {
   gender: ["gender", "sex"],
   program: ["program", "strand", "track"],
   rfid: ["rfid", "rfidtag", "cardno"],
+  email: ["email", "emailaddress", "schoolemail", "studentemail"],
 };
 function mapHeaders(headerRow) {
   const map = {};
@@ -504,6 +505,7 @@ function StudentModal({ initial, onSave, onClose }) {
     gender: initial?.gender || "",
     program: initial?.program || "",
     rfid: initial?.rfid || "",
+    email: initial?.email || "",
     is_active: initial?.is_active ?? true,
   });
   const [err, setErr] = useState("");
@@ -519,7 +521,8 @@ function StudentModal({ initial, onSave, onClose }) {
         student_no: f.student_no.trim(), name: f.name.trim(),
         level: f.level.trim() || null, section: f.section.trim() || null,
         gender: f.gender.trim() || null, program: f.program.trim() || null,
-        rfid: f.rfid.trim() || null, is_active: f.is_active,
+        rfid: f.rfid.trim() || null, email: f.email.trim().toLowerCase() || null,
+        is_active: f.is_active,
       });
     } catch (e) { setErr(e.message); setBusy(false); }
   }
@@ -532,6 +535,9 @@ function StudentModal({ initial, onSave, onClose }) {
       </div>
       <div style={{ marginBottom: 12 }}><label style={labelStyle()}>Full name</label>
         <input value={f.name} onChange={set("name")} placeholder="DELA CRUZ, JUAN" style={inputStyle()} /></div>
+      <div style={{ marginBottom: 12 }}><label style={labelStyle()}>School email (for slip notifications)</label>
+        <input value={f.email} onChange={set("email")} placeholder="name@adi.edu.ph" style={inputStyle()} />
+        <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>Optional — leave blank for pupils without an account.</div></div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
         <div><label style={labelStyle()}>Grade level</label><input value={f.level} onChange={set("level")} placeholder="Grade 9" style={inputStyle()} /></div>
         <div><label style={labelStyle()}>Section</label><input value={f.section} onChange={set("section")} placeholder="Obedience" style={inputStyle()} /></div>
@@ -603,7 +609,7 @@ function ImportPanel({ onDone, onClose }) {
     <Modal title="Import students from CSV" onClose={onClose}>
       <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.55, marginBottom: 12 }}>
         Existing students are matched on <strong>student number</strong> and updated; new ones are added.
-        Nothing is deleted. Recognised columns: student no., name, level, section, gender, program, rfid.
+        Nothing is deleted. Recognised columns: student no., name, level, section, gender, program, rfid, email.
       </div>
       <input type="file" accept=".csv,text/csv" onChange={onFile} style={{ marginBottom: 10, fontSize: 13 }} />
       <div style={{ fontSize: 12, color: C.textLight, marginBottom: 6 }}>…or paste the CSV below</div>
@@ -708,7 +714,7 @@ function Students() {
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr style={{ background: C.bg }}>
-              {["Student No.", "Name", "Level & Section", "Status", "Actions"].map(h => <th key={h} style={th}>{h}</th>)}
+              {["Student No.", "Name", "Level & Section", "Email", "Status", "Actions"].map(h => <th key={h} style={th}>{h}</th>)}
             </tr></thead>
             <tbody>
               {rows.map(st => (
@@ -716,6 +722,7 @@ function Students() {
                   <td style={{ ...td, fontFamily: "ui-monospace, Consolas, monospace", color: C.textMuted }}>{st.student_no}</td>
                   <td style={{ ...td, fontWeight: 600 }}>{st.name}</td>
                   <td style={td}>{[st.level, st.section].filter(Boolean).join(" · ") || "—"}</td>
+                  <td style={{ ...td, color: C.textMuted }}>{st.email || "—"}</td>
                   <td style={td}>{st.is_active
                     ? <span style={{ color: C.success, fontWeight: 700, fontSize: 12 }}>● Enrolled</span>
                     : <span style={{ color: C.danger, fontWeight: 700, fontSize: 12 }}>● Inactive</span>}</td>

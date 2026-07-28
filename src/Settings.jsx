@@ -20,6 +20,8 @@ export default function Settings({ onChanged }) {
   const [startMonth, setStartMonth] = useState(6);
   const [emailOn, setEmailOn] = useState(true);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [studentEmailOn, setStudentEmailOn] = useState(true);
+  const [savingStudentEmail, setSavingStudentEmail] = useState(false);
   const [countWeekends, setCountWeekends] = useState(false);
   const [savingWeekends, setSavingWeekends] = useState(false);
   const [maintenanceOn, setMaintenanceOn] = useState(false);
@@ -42,6 +44,7 @@ export default function Settings({ onChanged }) {
       if (map.repeat_offender_threshold != null) setThreshold(Number(map.repeat_offender_threshold) || 3);
       if (map.school_year_start_month != null) setStartMonth(Number(map.school_year_start_month) || 6);
       setEmailOn(map.email_notifications_enabled !== false);
+      setStudentEmailOn(map.student_email_notifications_enabled !== false);
       setCountWeekends(map.count_weekends === true);
       setMaintenanceOn(map.maintenance_mode === true);
       setMaintenanceMsg(typeof map.maintenance_message === "string" ? map.maintenance_message : "");
@@ -104,6 +107,19 @@ export default function Settings({ onChanged }) {
       setError("Could not save (admins only): " + e.message);
     } finally {
       setSavingEmail(false);
+    }
+  }
+
+  async function saveStudentEmail(nextOn) {
+    setSavingStudentEmail(true); setError("");
+    try {
+      await saveSetting("student_email_notifications_enabled", nextOn);
+      setStudentEmailOn(nextOn);
+      flash(nextOn ? "Students will be emailed a copy of their slip." : "Student emails are OFF.");
+    } catch (e) {
+      setError("Could not save (admins only): " + e.message);
+    } finally {
+      setSavingStudentEmail(false);
     }
   }
 
@@ -178,6 +194,20 @@ export default function Settings({ onChanged }) {
             {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
           </select>
           {savingStartMonth && <span style={{ fontSize: 13, color: C.textMuted }}>Saving...</span>}
+        </div>
+      </div>
+
+      {/* Student email notifications */}
+      <div style={section}>
+        <label style={label}>Student email notifications</label>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5 }}>
+            When ON, confirming a slip also emails the student a copy, using the address on their record. Students without an email on file are simply skipped.
+          </div>
+          <button onClick={() => saveStudentEmail(!studentEmailOn)} disabled={savingStudentEmail || loading}
+            style={{ flexShrink: 0, background: studentEmailOn ? C.success : C.bg, color: studentEmailOn ? "#fff" : C.textMuted, border: `1px solid ${studentEmailOn ? C.success : C.border}`, borderRadius: 20, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: savingStudentEmail || loading ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
+            {savingStudentEmail ? "Saving..." : studentEmailOn ? "● ON — Turn Off" : "○ OFF — Turn On"}
+          </button>
         </div>
       </div>
 

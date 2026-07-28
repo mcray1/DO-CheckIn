@@ -113,6 +113,7 @@ export default function Dashboard({ profile, onSignOut }) {
   const [onlyRepeat, setOnlyRepeat] = useState(false);
   const [onlyToday, setOnlyToday] = useState(false); // set by clicking the Today stat card
   const [emailEnabled, setEmailEnabled] = useState(true); // settings.email_notifications_enabled
+  const [studentEmailEnabled, setStudentEmailEnabled] = useState(true); // settings.student_email_notifications_enabled
   const [perms, setPerms] = useState([]); // effective permissions from my_permissions()
   const can = (p) => perms.includes(p);
   const isSuperadmin = profile?.role === "superadmin";
@@ -148,11 +149,12 @@ export default function Dashboard({ profile, onSignOut }) {
   async function loadFlags() {
     try {
       const headers = await authHeaders();
-      const tRes = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=in.(repeat_offender_threshold,school_year_start_month,email_notifications_enabled)&select=key,value`, { headers });
+      const tRes = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=in.(repeat_offender_threshold,school_year_start_month,email_notifications_enabled,student_email_notifications_enabled)&select=key,value`, { headers });
       const sRows = tRes.ok ? await tRes.json() : [];
       const cfg = {};
       for (const r of sRows) cfg[r.key] = r.value;
       setEmailEnabled(cfg.email_notifications_enabled !== false);
+      setStudentEmailEnabled(cfg.student_email_notifications_enabled !== false);
       const threshold = Number(cfg.repeat_offender_threshold ?? 3) || 3;
       const startMonth = Number(cfg.school_year_start_month ?? 6) || 6;
       const sy = currentSchoolYear(startMonth);
@@ -317,7 +319,7 @@ export default function Dashboard({ profile, onSignOut }) {
 
       {/* Confirm Modal */}
       {selectedSlip && (
-        <ConfirmModal slip={selectedSlip} profile={profile} subCategories={subCategories} emailEnabled={emailEnabled}
+        <ConfirmModal slip={selectedSlip} profile={profile} subCategories={subCategories} emailEnabled={emailEnabled} studentEmailEnabled={studentEmailEnabled}
           onClose={() => setSelectedSlip(null)}
           onSaved={(updated) => {
             setSlips(prev => prev.map(sl => sl.id === updated.id ? updated : sl));
@@ -411,7 +413,7 @@ function CardView({ slips, onOpen, flagged = {}, canConfirm = true }) {
   );
 }
 
-function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, onClose, onSaved }) {
+function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, studentEmailEnabled = true, onClose, onSaved }) {
   const [subCategory, setSubCategory] = useState(slip.final_sub_category || slip.ai_sub_category || "");
   const [status, setStatus] = useState(slip.status || slip.ai_status || "");
   const [docStatus, setDocStatus] = useState(slip.document_status || "Not Required");
@@ -443,14 +445,22 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
       if (slip.absence_date && absDays !== "") patch.absence_days = Number(absDays);
       const [updated] = await updateSlip(slip.id, patch);
 
-      // Email the adviser on first confirmation (skipped when the admin has
-      // switched notifications off, or there is no address / it already went).
-      if (emailEnabled && slip.teacher_email && !slip.notification_sent) {
+      // Notify on first confirmation. The adviser and the student are handled
+      // independently server-side, so call whenever either could still be due —
+      // send-notification re-checks the toggles, addresses and sent flags.
+      const adviserDue = emailEnabled && slip.teacher_email && !slip.notification_sent;
+      const studentDue = studentEmailEnabled && !slip.student_notification_sent;
+      if (adviserDue || studentDue) {
         let notify;
         try { notify = await sendNotification(slip.id); }
         catch (e) { notify = { ok: false, error: e.message }; }
         if (notify.ok) {
-          onSaved({ ...updated, notification_sent: true, notification_sent_at: new Date().toISOString() });
+          const s = notify.sent || [];
+          onSaved({
+            ...updated,
+            notification_sent: slip.notification_sent || s.includes("adviser"),
+            student_notification_sent: slip.student_notification_sent || s.includes("student"),
+          });
           return;
         }
         // Save succeeded but the email didn't — keep the modal open with a warning
@@ -546,19 +556,28 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
 
         {err && <div style={{ background: "rgba(239,68,68,0.08)", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.danger, marginBottom: 12 }}>{err}</div>}
 
-        {slip.notification_sent ? (
-          <div style={{ background: "rgba(16,185,129,0.1)", border: `1px solid ${C.success}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.text, marginBottom: 16 }}>
-            ✓ Adviser already notified{slip.notification_sent_at ? ` on ${new Date(slip.notification_sent_at).toLocaleString()}` : ""}.
-          </div>
-        ) : slip.teacher_email ? (
-          <div style={{ background: C.primaryBg, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.text, marginBottom: 16 }}>
-            ℹ️ Confirming will email <strong>{slip.teacher_name || slip.teacher_email}</strong> at {slip.teacher_email}.
-          </div>
-        ) : (
-          <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
-            No adviser email on file — the slip will be confirmed without a notification.
-          </div>
-        )}
+        {(() => {
+          const bits = [];
+          if (slip.notification_sent) bits.push({ tone: "done", text: `Adviser already notified${slip.notification_sent_at ? ` on ${new Date(slip.notification_sent_at).toLocaleString()}` : ""}.` });
+          else if (!emailEnabled) bits.push({ tone: "off", text: "Adviser emails are turned off in Settings." });
+          else if (slip.teacher_email) bits.push({ tone: "will", text: `Confirming will email ${slip.teacher_name || slip.teacher_email} at ${slip.teacher_email}.` });
+          else bits.push({ tone: "off", text: "No adviser email on file." });
+
+          if (slip.student_notification_sent) bits.push({ tone: "done", text: "Student already emailed a copy." });
+          else if (!studentEmailEnabled) bits.push({ tone: "off", text: "Student emails are turned off in Settings." });
+          else bits.push({ tone: "will", text: "Confirming will email the student a copy, if an address is on their record." });
+
+          const tone = bits.some(b => b.tone === "will") ? "will" : bits.every(b => b.tone === "done") ? "done" : "off";
+          const bg = tone === "done" ? "rgba(16,185,129,0.1)" : tone === "will" ? C.primaryBg : C.bg;
+          const bd = tone === "done" ? C.success : tone === "will" ? C.primaryBg : C.border;
+          return (
+            <div style={{ background: bg, border: `1px solid ${bd}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, color: tone === "off" ? C.textMuted : C.text, marginBottom: 16, lineHeight: 1.6 }}>
+              {bits.map((b, i) => (
+                <div key={i}>{b.tone === "done" ? "✓" : b.tone === "will" ? "ℹ️" : "—"} {b.text}</div>
+              ))}
+            </div>
+          );
+        })()}
 
         {notifyWarning && (
           <div style={{ background: "rgba(245,158,11,0.1)", border: `1px solid ${C.warning}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.text, marginBottom: 12 }}>

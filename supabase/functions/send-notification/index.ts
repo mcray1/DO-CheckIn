@@ -166,42 +166,35 @@ Deno.serve(async (req) => {
   if (!caller.is_active) return json({ ok: false, error: "Your account is inactive" }, 403);
   if (!STAFF_ROLES.has(caller.role)) return json({ ok: false, error: "Not authorized" }, 403);
 
-  let logRow: { id: number } | null = null;
-
   try {
     const { slip_id } = await req.json();
     if (!slip_id) throw new Error("Missing slip_id");
 
-    // Fetch the slip
     const { data: slip, error: slipErr } = await supabase
       .from("admission_slips").select("*").eq("id", slip_id).single();
     if (slipErr || !slip) throw new Error("Slip not found");
 
-    if (!slip.teacher_email) {
-      return json({ ok: false, reason: "No teacher email on slip" });
+    // Admin kill-switches, read together. Enforced here as well as in the UI so
+    // nothing slips out while notifications are paused.
+    const { data: settingRows } = await supabase
+      .from("settings").select("key, value")
+      .in("key", ["email_notifications_enabled", "student_email_notifications_enabled"]);
+    const setting = (k: string) =>
+      (settingRows || []).find((r: { key: string }) => r.key === k)?.value !== false;
+    const adviserOn = setting("email_notifications_enabled");
+    const studentOn = setting("student_email_notifications_enabled");
+
+    // The student's address is read from the students table, never from the
+    // slip: the kiosk writes slips as anon, so an address carried on the slip
+    // could be forged. student_id on the slip is the student number.
+    let studentEmail: string | null = null;
+    if (studentOn && !slip.student_notification_sent && slip.student_id) {
+      const { data: student } = await supabase
+        .from("students").select("email").eq("student_no", slip.student_id).maybeSingle();
+      studentEmail = student?.email?.trim() || null;
     }
 
-    // Server-side guard: never resend a notification that already went out.
-    if (slip.notification_sent) {
-      return json({ ok: true, reason: "Already notified" });
-    }
-
-    // Admin kill-switch. Enforced here as well as in the UI so nothing slips out
-    // while notifications are paused.
-    const { data: emailSetting } = await supabase
-      .from("settings").select("value").eq("key", "email_notifications_enabled").maybeSingle();
-    if (emailSetting?.value === false) {
-      return json({ ok: false, reason: "Adviser emails are turned off in Settings" });
-    }
-
-    const subject = `POD Notice — ${slip.name} | ${(slip.nature || []).join(", ")} | ${slip.date} ${slip.time_arrived}`;
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 520px;">
-        <div style="border-bottom: 3px solid #1e40af; padding-bottom: 10px; margin-bottom: 16px;">
-          <div style="font-size:12px; color:#64748b;">ATENEO DE ILOILO – SMCS · DISCIPLINE OFFICE</div>
-          <div style="font-size:18px; font-weight:800; color:#1e40af;">Admission Slip Notice</div>
-        </div>
-        <p>A student from your class has reported to the Discipline Office.</p>
+    const shared = `
         <table style="font-size:14px; line-height:1.8;">
           <tr><td style="color:#64748b;">Student:</td><td><strong>${esc(slip.name)}</strong></td></tr>
           <tr><td style="color:#64748b;">ID:</td><td>${esc(slip.student_id)}</td></tr>
@@ -211,54 +204,93 @@ Deno.serve(async (req) => {
           <tr><td style="color:#64748b;">Reason:</td><td>${esc(slip.reason || "—")}</td></tr>
           <tr><td style="color:#64748b;">Status:</td><td><strong>${esc(slip.status || "Pending")}</strong></td></tr>
           <tr><td style="color:#64748b;">Confirmed by:</td><td>${esc(slip.confirmed_by || "—")}</td></tr>
-        </table>
+        </table>`;
+    const wrap = (heading: string, lead: string) => `
+      <div style="font-family: Arial, sans-serif; max-width: 520px;">
+        <div style="border-bottom: 3px solid #1e40af; padding-bottom: 10px; margin-bottom: 16px;">
+          <div style="font-size:12px; color:#64748b;">ATENEO DE ILOILO – SMCS · DISCIPLINE OFFICE</div>
+          <div style="font-size:18px; font-weight:800; color:#1e40af;">${heading}</div>
+        </div>
+        <p>${lead}</p>${shared}
         <p style="font-size:12px; color:#94a3b8; margin-top:16px;">
           This is an automated notification from the Ateneo de Iloilo Discipline Office.
+          Please see the Discipline Office if any detail is incorrect.
         </p>
       </div>`;
 
-    // Log attempt
-    const { data: inserted } = await supabase.from("notification_log").insert({
-      slip_id, channel: "email", recipient_email: slip.teacher_email,
-      subject, status: "pending", attempts: 1,
-    }).select().single();
-    logRow = inserted;
+    const subject = `POD Notice — ${slip.name} | ${(slip.nature || []).join(", ")} | ${slip.date} ${slip.time_arrived}`;
 
-    // Send via Gmail
-    const token = await getAccessToken();
-    const raw = buildRawEmail(slip.teacher_email, subject, html);
+    // Log → send → mark. Each recipient is independent so one failing address
+    // can't stop the other from being told.
+    async function deliver(to: string, html: string) {
+      let logId: number | null = null;
+      try {
+        const { data: inserted } = await supabase.from("notification_log").insert({
+          slip_id, channel: "email", recipient_email: to,
+          subject, status: "pending", attempts: 1,
+        }).select().single();
+        logId = inserted?.id ?? null;
 
-    const gmailRes = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(POD_SENDER_EMAIL)}/messages/send`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ raw }),
-      },
-    );
+        const token = await getAccessToken();
+        const gmailRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(POD_SENDER_EMAIL)}/messages/send`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ raw: buildRawEmail(to, subject, html) }),
+          },
+        );
+        if (!gmailRes.ok) throw new Error("Gmail send failed: " + (await gmailRes.text()));
 
-    if (!gmailRes.ok) {
-      const errText = await gmailRes.text();
-      throw new Error("Gmail send failed: " + errText);
+        if (logId) await supabase.from("notification_log").update({
+          status: "sent", sent_at: new Date().toISOString(),
+        }).eq("id", logId);
+        return { ok: true as const };
+      } catch (e) {
+        const message = String((e as Error)?.message || e);
+        if (logId) await supabase.from("notification_log").update({
+          status: "failed", error_message: message,
+        }).eq("id", logId);
+        return { ok: false as const, error: message };
+      }
     }
 
-    // Mark success
-    if (logRow) await supabase.from("notification_log").update({
-      status: "sent", sent_at: new Date().toISOString(),
-    }).eq("id", logRow.id);
+    const sent: string[] = [];
+    const skipped: string[] = [];
+    const failed: string[] = [];
 
-    await supabase.from("admission_slips").update({
-      notification_sent: true, notification_sent_at: new Date().toISOString(),
-    }).eq("id", slip_id);
+    // ── Adviser ──
+    if (slip.notification_sent) skipped.push("adviser already notified");
+    else if (!adviserOn) skipped.push("adviser emails are off");
+    else if (!slip.teacher_email) skipped.push("no adviser email on slip");
+    else {
+      const r = await deliver(slip.teacher_email, wrap("Admission Slip Notice", "A student from your class has reported to the Discipline Office."));
+      if (r.ok) {
+        await supabase.from("admission_slips").update({
+          notification_sent: true, notification_sent_at: new Date().toISOString(),
+        }).eq("id", slip_id);
+        sent.push("adviser");
+      } else failed.push(`adviser: ${r.error}`);
+    }
 
-    return json({ ok: true });
+    // ── Student ──
+    if (slip.student_notification_sent) skipped.push("student already notified");
+    else if (!studentOn) skipped.push("student emails are off");
+    else if (!studentEmail) skipped.push("no student email on file");
+    else {
+      const r = await deliver(studentEmail, wrap("Your Admission Slip", "You reported to the Discipline Office. Here is a copy of your admission slip for your records."));
+      if (r.ok) {
+        await supabase.from("admission_slips").update({
+          student_notification_sent: true, student_notification_sent_at: new Date().toISOString(),
+        }).eq("id", slip_id);
+        sent.push("student");
+      } else failed.push(`student: ${r.error}`);
+    }
+
+    if (failed.length) return json({ ok: false, error: failed.join("; "), sent }, 500);
+    return json({ ok: true, sent, reason: sent.length ? undefined : skipped.join("; ") });
 
   } catch (e) {
-    const message = String((e as Error)?.message || e);
-    // Never leave a pending log row dangling on failure.
-    if (logRow) await supabase.from("notification_log").update({
-      status: "failed", error_message: message,
-    }).eq("id", logRow.id);
-    return json({ ok: false, error: message }, 500);
+    return json({ ok: false, error: String((e as Error)?.message || e) }, 500);
   }
 });
