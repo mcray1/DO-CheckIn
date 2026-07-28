@@ -194,31 +194,81 @@ Deno.serve(async (req) => {
       studentEmail = student?.email?.trim() || null;
     }
 
-    const shared = `
-        <table style="font-size:14px; line-height:1.8;">
-          <tr><td style="color:#64748b;">Student:</td><td><strong>${esc(slip.name)}</strong></td></tr>
-          <tr><td style="color:#64748b;">ID:</td><td>${esc(slip.student_id)}</td></tr>
-          <tr><td style="color:#64748b;">Grade/Section:</td><td>${esc(slip.grade_section || "—")}</td></tr>
-          <tr><td style="color:#64748b;">Nature:</td><td>${esc((slip.nature || []).join(", "))} ${esc(slip.meridiem || "")}</td></tr>
-          <tr><td style="color:#64748b;">Time Arrived:</td><td>${esc(slip.time_arrived)}</td></tr>
-          <tr><td style="color:#64748b;">Reason:</td><td>${esc(slip.reason || "—")}</td></tr>
-          <tr><td style="color:#64748b;">Status:</td><td><strong>${esc(slip.status || "Pending")}</strong></td></tr>
-          <tr><td style="color:#64748b;">Confirmed by:</td><td>${esc(slip.confirmed_by || "—")}</td></tr>
-        </table>`;
-    const wrap = (heading: string, lead: string) => `
-      <div style="font-family: Arial, sans-serif; max-width: 520px;">
-        <div style="border-bottom: 3px solid #1e40af; padding-bottom: 10px; margin-bottom: 16px;">
-          <div style="font-size:12px; color:#64748b;">ATENEO DE ILOILO – SMCS · DISCIPLINE OFFICE</div>
-          <div style="font-size:18px; font-weight:800; color:#1e40af;">${heading}</div>
-        </div>
-        <p>${lead}</p>${shared}
-        <p style="font-size:12px; color:#94a3b8; margin-top:16px;">
-          This is an automated notification from the Ateneo de Iloilo Discipline Office.
-          Please see the Discipline Office if any detail is incorrect.
-        </p>
-      </div>`;
+    // ── Email body ───────────────────────────────────────────────
+    // Table-based layout with inline styles: Outlook ignores <style> blocks and
+    // most flex/grid. The seal is served from the public site; image-blocking
+    // clients still get the full text header, so nothing depends on it loading.
+    const NAVY = "#12315B", GOLD = "#C8A24B";
+    const SEAL = "https://adi.edu.ph/pod/seal.png";
+    const STATUS_TONE: Record<string, { bg: string; fg: string; bd: string }> = {
+      "Excused": { bg: "#E7F4EA", fg: "#1B5E20", bd: "#2E7D32" },
+      "Unexcused": { bg: "#FDEAEA", fg: "#B71C1C", bd: "#C62828" },
+      "Admit Temporarily": { bg: "#FFF4E5", fg: "#8A4B00", bd: "#B25000" },
+    };
 
-    const subject = `POD Notice — ${slip.name} | ${(slip.nature || []).join(", ")} | ${slip.date} ${slip.time_arrived}`;
+    const natures = (slip.nature || []).join(", ");
+    const tone = STATUS_TONE[slip.status] || { bg: "#EFEFEF", fg: "#333", bd: "#999" };
+    const row = (label: string, value: string) =>
+      `<tr><td style="padding:5px 14px 5px 0;color:#6E6E73;font-size:13px;white-space:nowrap;vertical-align:top">${label}</td>` +
+      `<td style="padding:5px 0;font-size:14px;color:#1D1D1F">${value}</td></tr>`;
+
+    // Absence span + fractional day count, when this is an absence.
+    let absenceRow = "";
+    if (slip.absence_date) {
+      const span = slip.absence_end_date && slip.absence_end_date !== slip.absence_date
+        ? `${slip.absence_date} – ${slip.absence_end_date}` : String(slip.absence_date);
+      const days = slip.absence_days != null
+        ? ` (${slip.absence_days} day${Number(slip.absence_days) === 1 ? "" : "s"}${slip.absence_half ? ", " + slip.absence_half : ""})`
+        : "";
+      absenceRow = row("Days covered", esc(span + days));
+    }
+
+    // The deadline a student must actually act on — kept visually prominent.
+    const docBox = slip.document_required
+      ? `<div style="margin:16px 0;background:#FFF4E5;border:1px solid #B25000;border-left:4px solid #B25000;border-radius:6px;padding:12px 14px">
+           <div style="font-size:13px;font-weight:bold;color:#8A4B00;margin-bottom:4px">Document required</div>
+           <div style="font-size:14px;color:#1D1D1F">${esc(slip.document_description || "A supporting document")}</div>
+           ${slip.document_deadline ? `<div style="font-size:13px;color:#8A4B00;margin-top:6px">Please submit on or before <b>${esc(slip.document_deadline)}</b>.</div>` : ""}
+         </div>`
+      : "";
+
+    const wrap = (lead: string, closing: string) => `
+      <table cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;background:#ffffff;border:1px solid #E5E5E7;border-radius:10px;overflow:hidden;font-family:Arial,Helvetica,sans-serif">
+        <tr><td style="padding:20px 24px;background:${NAVY};border-bottom:3px solid ${GOLD}">
+          <table cellpadding="0" cellspacing="0"><tr>
+            <td style="padding-right:12px"><img src="${SEAL}" width="44" height="44" alt="" style="display:block;border:0"></td>
+            <td><div style="color:#ffffff;font-size:16px;font-weight:bold">Ateneo de Iloilo &ndash; SMCS</div>
+                <div style="color:${GOLD};font-size:12px">Discipline Office &middot; Official Notice</div></td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:22px 24px">
+          <div style="font-size:11px;color:#86868B;letter-spacing:1px;margin-bottom:2px">ADMISSION SLIP &middot; REF #${esc(slip.id)}</div>
+          <div style="font-size:19px;font-weight:bold;color:${NAVY};margin-bottom:14px">Notice of ${esc(natures)}</div>
+          <p style="margin:0 0 14px;font-size:14px;color:#333333;line-height:1.65">${lead}</p>
+          <div style="margin-bottom:16px"><span style="display:inline-block;background:${tone.bg};color:${tone.fg};border:1px solid ${tone.bd};border-radius:999px;padding:5px 14px;font-size:13px;font-weight:bold">${esc(slip.status || "Pending")}</span></div>
+          <table cellpadding="0" cellspacing="0" width="100%" style="border-top:1px solid #E5E5E7">
+            ${row("Student", `<b>${esc(slip.name)}</b>`)}
+            ${row("Student no.", esc(slip.student_id))}
+            ${row("Grade &amp; section", esc(slip.grade_section || "—"))}
+            ${row("Nature of visit", esc(natures) + (slip.meridiem ? " " + esc(slip.meridiem) : ""))}
+            ${row("Date filed", esc(slip.date))}
+            ${row("Time", esc(slip.time_arrived || "—"))}
+            ${absenceRow}
+            ${slip.final_sub_category ? row("Classification", esc(slip.final_sub_category)) : ""}
+            ${row("Reason given", `<i>&ldquo;${esc(slip.reason || "—")}&rdquo;</i>`)}
+            ${row("Confirmed by", esc(slip.confirmed_by || "—"))}
+          </table>
+          ${docBox}
+          <div style="margin-top:22px;padding-top:14px;border-top:1px solid #E5E5E7;font-size:12px;color:#6E6E73;line-height:1.6">
+            ${closing}<br>Ateneo de Iloilo &ndash; Santa Maria Catholic School
+          </div>
+        </td></tr>
+        <tr><td style="padding:14px 24px;background:#F5F5F7;border-top:1px solid #E5E5E7;font-size:11px;color:#86868B;line-height:1.5">
+          This serves as your electronic copy. Retain for your records. Automated message &mdash; please do not reply.
+        </td></tr>
+      </table>`;
+
+    const subject = `Admission Slip #${slip.id} · ${slip.name} · ${natures} — ${slip.status || "Pending"}`;
 
     // Log → send → mark. Each recipient is independent so one failing address
     // can't stop the other from being told.
@@ -264,7 +314,7 @@ Deno.serve(async (req) => {
     else if (!adviserOn) skipped.push("adviser emails are off");
     else if (!slip.teacher_email) skipped.push("no adviser email on slip");
     else {
-      const r = await deliver(slip.teacher_email, wrap("Admission Slip Notice", "A student from your class has reported to the Discipline Office."));
+      const r = await deliver(slip.teacher_email, wrap("This is to inform you that the student named below, from your advisory class, reported to the Discipline Office. The matter has been reviewed and given the following disposition:", "Issued by the Office of the Prefect of Discipline"));
       if (r.ok) {
         await supabase.from("admission_slips").update({
           notification_sent: true, notification_sent_at: new Date().toISOString(),
@@ -278,7 +328,7 @@ Deno.serve(async (req) => {
     else if (!studentOn) skipped.push("student emails are off");
     else if (!studentEmail) skipped.push("no student email on file");
     else {
-      const r = await deliver(studentEmail, wrap("Your Admission Slip", "You reported to the Discipline Office. Here is a copy of your admission slip for your records."));
+      const r = await deliver(studentEmail, wrap("This is to formally acknowledge that you reported to the Discipline Office on the date indicated below, and that the matter has been reviewed and given the following disposition:", "Issued by the Office of the Prefect of Discipline"));
       if (r.ok) {
         await supabase.from("admission_slips").update({
           student_notification_sent: true, student_notification_sent_at: new Date().toISOString(),
