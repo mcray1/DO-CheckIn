@@ -74,6 +74,13 @@ async function fetchSubCategories() {
   return res.json();
 }
 
+// Permanent — superadmin only, enforced by RLS. notification_log cascades.
+async function deleteSlip(id) {
+  const headers = await authHeaders();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?id=eq.${id}`, { method: "DELETE", headers });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 async function updateSlip(id, patch) {
   const headers = await authHeaders();
   const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?id=eq.${id}`, {
@@ -324,6 +331,10 @@ export default function Dashboard({ profile, onSignOut }) {
           onSaved={(updated) => {
             setSlips(prev => prev.map(sl => sl.id === updated.id ? updated : sl));
             setSelectedSlip(null);
+          }}
+          onDeleted={(id) => {
+            setSlips(prev => prev.filter(sl => sl.id !== id));
+            setSelectedSlip(null);
           }} />
       )}
     </div>
@@ -413,7 +424,7 @@ function CardView({ slips, onOpen, flagged = {}, canConfirm = true }) {
   );
 }
 
-function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, studentEmailEnabled = true, onClose, onSaved }) {
+function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, studentEmailEnabled = true, onClose, onSaved, onDeleted }) {
   const [subCategory, setSubCategory] = useState(slip.final_sub_category || slip.ai_sub_category || "");
   const [status, setStatus] = useState(slip.status || slip.ai_status || "");
   const [docStatus, setDocStatus] = useState(slip.document_status || "Not Required");
@@ -422,6 +433,20 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
   const [err, setErr] = useState("");
   const [notifyWarning, setNotifyWarning] = useState("");
   const [savedUpdated, setSavedUpdated] = useState(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const canDelete = profile?.role === "superadmin";
+
+  async function handleDelete() {
+    setDeleting(true); setErr("");
+    try {
+      await deleteSlip(slip.id);
+      onDeleted(slip.id);
+    } catch (e) {
+      setErr("Could not delete: " + e.message);
+      setDeleting(false);
+    }
+  }
 
   // Sub-categories available for this slip's Nature of Visit (dropdown options).
   const subOptions = subCategories.filter(sc => sc.category_id === slip.category_id);
@@ -595,6 +620,34 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
             <button onClick={handleConfirm} disabled={saving} style={{ flex: 2, background: saving ? C.textLight : C.primary, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer" }}>
               {saving ? "Saving..." : slip.status ? "Update Slip" : "Confirm Slip"}
             </button>
+          </div>
+        )}
+
+        {/* Permanent delete — superadmin only, and never the primary action. */}
+        {canDelete && !notifyWarning && (
+          <div className="no-print" style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+            {!confirmingDelete ? (
+              <button onClick={() => setConfirmingDelete(true)}
+                style={{ background: "transparent", border: "none", color: C.danger, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                Delete this slip permanently
+              </button>
+            ) : (
+              <div style={{ background: "rgba(215,0,21,0.06)", border: `1px solid ${C.danger}`, borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.danger, marginBottom: 4 }}>Delete this slip permanently?</div>
+                <div style={{ fontSize: 12, color: C.text, lineHeight: 1.55, marginBottom: 10 }}>
+                  <strong>{slip.name}</strong> · {(slip.nature || []).join(", ")} · {slip.date}.
+                  This removes the slip and its email history for good. It cannot be undone, and the slip will disappear from past reports.
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setConfirmingDelete(false)} disabled={deleting}
+                    style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: C.textMuted, borderRadius: 8, padding: "9px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Keep it</button>
+                  <button onClick={handleDelete} disabled={deleting}
+                    style={{ flex: 1, background: deleting ? C.textLight : C.danger, border: "none", color: "#fff", borderRadius: 8, padding: "9px", fontSize: 13, fontWeight: 700, cursor: deleting ? "not-allowed" : "pointer" }}>
+                    {deleting ? "Deleting..." : "Delete permanently"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
