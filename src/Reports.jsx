@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import { C } from "./theme";
+import { DEPARTMENTS, departmentOf, levelOf } from "./departments";
 
 // Reports (view_reports permission). Two modes over a date window:
 //  • Summary       — counts by category / grade level / section, by status.
@@ -56,7 +57,6 @@ function slipDay(s) {
   return null;
 }
 function midnight(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
-const levelOf = (gs) => (gs || "").trim() ? (gs.split(" - ")[0].trim()) : "";
 
 async function authHeaders() {
   const { data } = await supabase.auth.getSession();
@@ -163,6 +163,7 @@ export default function Reports() {
   // ── SUMMARY aggregation ──────────────────────────────────────────
   function keysFor(s) {
     if (groupBy === "category") return (s.nature && s.nature.length ? s.nature : ["(uncategorised)"]);
+    if (groupBy === "department") return [departmentOf(s.grade_section)];
     if (groupBy === "level") return [levelOf(s.grade_section) || "(no level)"];
     return [(s.grade_section || "").trim() || "(no section)"];
   }
@@ -174,10 +175,14 @@ export default function Reports() {
       groups[k][b]++; groups[k].total++;
     }
   }
-  const sumRows = Object.entries(groups).map(([key, v]) => ({ key, ...v })).sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
+  const deptRank = (k) => { const i = DEPARTMENTS.indexOf(k); return i === -1 ? 99 : i; };
+  const sumRows = Object.entries(groups).map(([key, v]) => ({ key, ...v })).sort((a, b) =>
+    groupBy === "department"
+      ? deptRank(a.key) - deptRank(b.key) || a.key.localeCompare(b.key)
+      : b.total - a.total || a.key.localeCompare(b.key));
   const totals = STATUS_COLS.reduce((acc, [st]) => { acc[st] = sumRows.reduce((n, r) => n + r[st], 0); return acc; }, {});
   totals.total = sumRows.reduce((n, r) => n + r.total, 0);
-  const groupLabel = groupBy === "category" ? "Category" : groupBy === "level" ? "Grade Level" : "Section";
+  const groupLabel = groupBy === "category" ? "Category" : groupBy === "department" ? "Department" : groupBy === "level" ? "Grade Level" : "Section";
 
   function exportSummary() {
     const head = [groupLabel, ...STATUS_COLS.map(([, l]) => l), "Total"];
@@ -191,6 +196,7 @@ export default function Reports() {
   const levels = [...new Set(inWindow.map(s => levelOf(s.grade_section)).filter(Boolean))].sort();
   const sections = [...new Set(inWindow.map(s => (s.grade_section || "").trim()).filter(Boolean))].sort();
   const scoped = inWindow.filter(s => {
+    if (scopeType === "department") return departmentOf(s.grade_section) === scopeValue;
     if (scopeType === "level") return levelOf(s.grade_section) === scopeValue;
     if (scopeType === "section") return (s.grade_section || "").trim() === scopeValue;
     return true;
@@ -312,15 +318,21 @@ export default function Reports() {
       </div>
 
       {mode === "summary" ? (
-        segRow("Break down by", [["category", "Category"], ["level", "Grade Level"], ["section", "Section"]], groupBy, setGroupBy)
+        segRow("Break down by", [["category", "Category"], ["department", "Department"], ["level", "Grade Level"], ["section", "Section"]], groupBy, setGroupBy)
       ) : (
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>Scope</span>
           <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
-            {[["all", "All"], ["level", "Grade Level"], ["section", "Section"]].map(([id, l]) => (
+            {[["all", "All"], ["department", "Department"], ["level", "Grade Level"], ["section", "Section"]].map(([id, l]) => (
               <button key={id} onClick={() => { setScopeType(id); setScopeValue(""); }} style={seg(scopeType === id)}>{l}</button>
             ))}
           </div>
+          {scopeType === "department" && (
+            <select value={scopeValue} onChange={e => setScopeValue(e.target.value)} style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 14 }}>
+              <option value="">— choose department —</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          )}
           {scopeType === "level" && (
             <select value={scopeValue} onChange={e => setScopeValue(e.target.value)} style={{ border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 10px", fontSize: 14 }}>
               <option value="">— choose grade level —</option>
@@ -388,7 +400,7 @@ export default function Reports() {
         )
       ) : (
         (scopeType !== "all" && !scopeValue) ? (
-          <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>Choose a {scopeType === "level" ? "grade level" : "section"} above.</div>
+          <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>Choose a {scopeType === "department" ? "department" : scopeType === "level" ? "grade level" : "section"} above.</div>
         ) : monRows.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px 0", color: C.textLight }}>No slips for this scope and period.</div>
         ) : (

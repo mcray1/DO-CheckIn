@@ -8,6 +8,7 @@ import Roles from "./Roles";
 import Directory from "./Directory";
 import Reports from "./Reports";
 import { C, T, SEAL_SRC, categoryVisual } from "./theme";
+import { DEPARTMENTS, departmentOf } from "./departments";
 
 
 const STATUS_OPTIONS = ["Excused", "Unexcused", "Admit Temporarily"];
@@ -112,6 +113,7 @@ export default function Dashboard({ profile, onSignOut }) {
   const [isMobile, setIsMobile] = useState(false);
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterNature, setFilterNature] = useState("All");
+  const [filterDept, setFilterDept] = useState("All");
   const [search, setSearch] = useState("");
   const [selectedSlip, setSelectedSlip] = useState(null); // for confirm modal
   const [error, setError] = useState("");
@@ -189,6 +191,7 @@ export default function Dashboard({ profile, onSignOut }) {
     if (filterStatus === "Pending" && s.status) return false;
     if (filterStatus !== "All" && filterStatus !== "Pending" && s.status !== filterStatus) return false;
     if (filterNature !== "All" && !(s.nature || []).includes(filterNature)) return false;
+    if (filterDept !== "All" && departmentOf(s.grade_section) !== filterDept) return false;
     if (onlyRepeat && !flagged[s.student_id]) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -267,8 +270,8 @@ export default function Dashboard({ profile, onSignOut }) {
             { label: "Unexcused", value: stats.unexcused, color: C.danger, active: !onlyToday && filterStatus === "Unexcused",
               onClick: () => { setOnlyToday(false); setFilterStatus("Unexcused"); } },
             { label: "Total", value: stats.total, color: C.textMuted, valueColor: C.text,
-              active: !onlyToday && filterStatus === "All" && filterNature === "All" && !onlyRepeat,
-              onClick: () => { setOnlyToday(false); setFilterStatus("All"); setFilterNature("All"); setOnlyRepeat(false); } },
+              active: !onlyToday && filterStatus === "All" && filterNature === "All" && filterDept === "All" && !onlyRepeat,
+              onClick: () => { setOnlyToday(false); setFilterStatus("All"); setFilterNature("All"); setFilterDept("All"); setOnlyRepeat(false); } },
           ].map(st => (
             <div key={st.label} onClick={st.onClick} title={`Filter: ${st.label}`}
               style={{ ...s.statCard(st.color), cursor: "pointer", boxShadow: st.active ? `0 0 0 2px ${st.color}` : "none" }}>
@@ -304,6 +307,10 @@ export default function Dashboard({ profile, onSignOut }) {
             {natures.length > 0 && <span style={{ fontSize: 12, color: C.textMuted, fontWeight: 700, marginLeft: 8 }}>Nature:</span>}
             {["All", ...natures].map(f => (
               <button key={f} onClick={() => { setFilterNature(f); setOnlyToday(false); }} style={s.chip(filterNature === f)}>{f}</button>
+            ))}
+            <span style={{ fontSize: 12, color: C.textMuted, fontWeight: 700, marginLeft: 8 }}>Dept:</span>
+            {["All", ...DEPARTMENTS].map(f => (
+              <button key={f} onClick={() => { setFilterDept(f); setOnlyToday(false); }} style={s.chip(filterDept === f)}>{f}</button>
             ))}
             <button onClick={() => setOnlyRepeat(v => !v)} title="Show only students flagged as repeat offenders"
               style={{ marginLeft: 8, background: onlyRepeat ? C.danger : C.bg, color: onlyRepeat ? "#fff" : C.danger, border: `1px solid ${onlyRepeat ? C.danger : C.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>⚑ Repeat offenders</button>
