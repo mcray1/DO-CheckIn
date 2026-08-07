@@ -9,6 +9,7 @@ import { C } from "./theme";
 
 const PERMISSIONS = [
   ["confirm_slips", "Confirm / override slips"],
+  ["manage_slips", "Correct or delete slips"],
   ["manage_categories", "Manage categories & keywords"],
   ["manage_users", "Manage user accounts"],
   ["manage_directory", "Manage advisers & students"],

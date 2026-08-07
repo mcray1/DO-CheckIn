@@ -67,6 +67,14 @@ async function fetchSlips() {
   return res.json();
 }
 
+// Active categories, so an admin can correct a mis-tapped Nature of Visit.
+async function fetchCategories() {
+  const headers = await authHeaders();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/categories?is_active=eq.true&order=sort_order&select=id,name`, { headers });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 // Active sub-categories, used to populate the confirm modal's sub-category dropdown.
 async function fetchSubCategories() {
   const headers = await authHeaders();
@@ -75,7 +83,7 @@ async function fetchSubCategories() {
   return res.json();
 }
 
-// Permanent — superadmin only, enforced by RLS. notification_log cascades.
+// Permanent. Gated by the manage_slips permission in RLS; notification_log cascades.
 async function deleteSlip(id) {
   const headers = await authHeaders();
   const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?id=eq.${id}`, { method: "DELETE", headers });
@@ -108,6 +116,7 @@ async function sendNotification(slipId) {
 export default function Dashboard({ profile, onSignOut }) {
   const [slips, setSlips] = useState([]);
   const [subCategories, setSubCategories] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState("table"); // table | card
   const [isMobile, setIsMobile] = useState(false);
@@ -143,6 +152,7 @@ export default function Dashboard({ profile, onSignOut }) {
 
   useEffect(() => { loadSlips(); }, []);
   useEffect(() => { fetchSubCategories().then(setSubCategories); }, []);
+  useEffect(() => { fetchCategories().then(setCategories); }, []);
 
   // Phones can't show the wide slips table — fall back to cards below 640px.
   useEffect(() => {
@@ -333,7 +343,7 @@ export default function Dashboard({ profile, onSignOut }) {
 
       {/* Confirm Modal */}
       {selectedSlip && (
-        <ConfirmModal slip={selectedSlip} profile={profile} subCategories={subCategories} emailEnabled={emailEnabled} studentEmailEnabled={studentEmailEnabled}
+        <ConfirmModal slip={selectedSlip} profile={profile} subCategories={subCategories} categories={categories} canManage={can("manage_slips")} emailEnabled={emailEnabled} studentEmailEnabled={studentEmailEnabled}
           onClose={() => setSelectedSlip(null)}
           onSaved={(updated) => {
             setSlips(prev => prev.map(sl => sl.id === updated.id ? updated : sl));
@@ -431,7 +441,8 @@ function CardView({ slips, onOpen, flagged = {}, canConfirm = true }) {
   );
 }
 
-function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, studentEmailEnabled = true, onClose, onSaved, onDeleted }) {
+function ConfirmModal({ slip, profile, subCategories = [], categories = [], canManage = false, emailEnabled = true, studentEmailEnabled = true, onClose, onSaved, onDeleted }) {
+  const [categoryId, setCategoryId] = useState(slip.category_id || "");
   const [subCategory, setSubCategory] = useState(slip.final_sub_category || slip.ai_sub_category || "");
   const [status, setStatus] = useState(slip.status || slip.ai_status || "");
   const [docStatus, setDocStatus] = useState(slip.document_status || "Not Required");
@@ -442,7 +453,7 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
   const [savedUpdated, setSavedUpdated] = useState(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const canDelete = profile?.role === "superadmin";
+  const canDelete = canManage;
 
   async function handleDelete() {
     setDeleting(true); setErr("");
@@ -456,7 +467,7 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
   }
 
   // Sub-categories available for this slip's Nature of Visit (dropdown options).
-  const subOptions = subCategories.filter(sc => sc.category_id === slip.category_id);
+  const subOptions = subCategories.filter(sc => String(sc.category_id) === String(categoryId));
   const subNames = subOptions.map(sc => sc.name);
   // Keep any legacy/custom value that isn't in the current active list.
   const dropdownNames = subCategory && !subNames.includes(subCategory) ? [subCategory, ...subNames] : subNames;
@@ -475,6 +486,11 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
         updated_at: new Date().toISOString(),
       };
       if (slip.absence_date && absDays !== "") patch.absence_days = Number(absDays);
+      // Nature correction: keep category_id and the nature[] label in step.
+      if (canManage && String(categoryId) !== String(slip.category_id)) {
+        const cat = categories.find(c => String(c.id) === String(categoryId));
+        if (cat) { patch.category_id = cat.id; patch.nature = [cat.name]; }
+      }
       const [updated] = await updateSlip(slip.id, patch);
 
       // Notify on first confirmation. The adviser and the student are handled
@@ -543,6 +559,22 @@ function ConfirmModal({ slip, profile, subCategories = [], emailEnabled = true, 
           <div style={{ background: `${statusColors[slip.ai_status] || C.textMuted}12`, border: `1px solid ${statusColors[slip.ai_status] || C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textMuted, marginBottom: 2 }}>🤖 SYSTEM SUGGESTION</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: statusColors[slip.ai_status] || C.text }}>{slip.ai_sub_category} · {slip.ai_status}</div>
+          </div>
+        )}
+
+        {/* Nature of Visit — correcting a mis-tapped category (manage_slips) */}
+        {canManage && categories.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6, display: "block" }}>Nature of Visit</label>
+            <select value={categoryId} onChange={e => { setCategoryId(e.target.value); setSubCategory(""); }}
+              style={{ width: "100%", border: `1.5px solid ${String(categoryId) !== String(slip.category_id) ? C.warning : C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, outline: "none", boxSizing: "border-box", background: C.card }}>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {String(categoryId) !== String(slip.category_id) && (
+              <div style={{ fontSize: 12, color: C.warning, marginTop: 4, fontWeight: 600 }}>
+                Changing from &ldquo;{(slip.nature || []).join(", ")}&rdquo; — the sub-category has been cleared, pick a new one below.
+              </div>
+            )}
           </div>
         )}
 
