@@ -84,10 +84,25 @@ async function fetchSubCategories() {
 }
 
 // Permanent. Gated by the manage_slips permission in RLS; notification_log cascades.
+//
+// return=representation matters: a DELETE that RLS blocks matches zero rows and
+// still answers 2xx, so checking res.ok alone reports success while the slip
+// survives — it reappears on the next refresh. Insist on getting the deleted
+// row back, and treat an empty result as the failure it is.
 async function deleteSlip(id) {
   const headers = await authHeaders();
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?id=eq.${id}`, { method: "DELETE", headers });
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?id=eq.${id}`, {
+    method: "DELETE",
+    headers: { ...headers, Prefer: "return=representation" },
+  });
   if (!res.ok) throw new Error(await res.text());
+  const rows = await res.json().catch(() => []);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error(
+      "the database refused it. Your role needs the manage_slips permission and " +
+      "the slips_manage_delete policy must exist — see migration 20260729_manage_slips.sql."
+    );
+  }
 }
 
 async function updateSlip(id, patch) {
