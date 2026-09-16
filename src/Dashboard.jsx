@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseClient";
 import Users from "./Users";
 import PrintableSlip from "./PrintableSlip";
@@ -60,11 +60,90 @@ async function authHeaders() {
   };
 }
 
-async function fetchSlips() {
+// ── The dashboard's working set ───────────────────────────────────
+// Every pending slip (the queue the POD works through — it must never be
+// truncated, or slips silently go unreviewed) plus the most recently filed
+// confirmed slips for review and reprint. Older confirmed slips stay in the
+// database and are reachable through Reports. The previous single fetch of the
+// newest 500 rows dropped older pending slips once the table outgrew it.
+const HISTORY_LIMIT = 500;
+
+// PostgREST caps one response at its max-rows setting (1000 on Supabase), so
+// an unbounded read pages through with Range headers until a short page comes
+// back. `max` bounds the total; 416 means the range started past the last row.
+const PAGE = 1000;
+async function fetchSlipRows(query, { max = Infinity } = {}) {
   const headers = await authHeaders();
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?order=created_at.desc&limit=500`, { headers });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const rows = [];
+  for (let from = 0; rows.length < max; from += PAGE) {
+    const to = Math.min(from + PAGE, max) - 1;
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?${query}`, {
+      headers: { ...headers, Range: `${from}-${to}` },
+    });
+    if (res.status === 416) break;
+    if (!res.ok) throw new Error(await res.text());
+    const page = await res.json();
+    rows.push(...page);
+    if (page.length < to - from + 1) break;
+  }
+  return rows;
+}
+
+async function fetchSlips() {
+  const [pending, history] = await Promise.all([
+    fetchSlipRows("status=is.null&order=created_at.desc"),
+    fetchSlipRows("status=not.is.null&order=created_at.desc", { max: HISTORY_LIMIT }),
+  ]);
+  // The two sets are disjoint by definition; de-duplicate anyway in case a slip
+  // was confirmed between the two requests (the confirmed copy is the fresher
+  // one, so it goes first), then keep newest-first order.
+  const seen = new Set();
+  const rows = [];
+  for (const r of [...history, ...pending]) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    rows.push(r);
+  }
+  rows.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  return { rows, historyCapped: history.length >= HISTORY_LIMIT };
+}
+
+// Count-only read: ask for a single row with Prefer: count=exact and take the
+// total from the Content-Range header ("0-0/1234", or "*/0" when nothing matches).
+async function countSlips(filter) {
+  const headers = await authHeaders();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/admission_slips?select=id${filter ? "&" + filter : ""}`, {
+    headers: { ...headers, Range: "0-0", Prefer: "count=exact" },
+  });
+  if (!res.ok && res.status !== 416) throw new Error(await res.text());
+  const n = Number((res.headers.get("content-range") || "").split("/")[1]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Exact totals for the stat cards. The working set above is deliberately
+// partial, so these come from the database rather than from the loaded rows.
+async function fetchCounts() {
+  const [total, pending, excused, unexcused] = await Promise.all([
+    countSlips(""),
+    countSlips("status=is.null"),
+    countSlips("status=eq.Excused"),
+    countSlips("status=eq.Unexcused"),
+  ]);
+  return { total, pending, excused, unexcused };
+}
+
+// Stat values derived from the loaded rows. Used for Today always — a slip
+// filed today is either still pending (all loaded) or among the most recently
+// filed confirmed slips (loaded), so the rows are complete for it — and as the
+// stand-in for the other cards until the exact counts arrive or if they fail.
+function statsFromRows(rows, todayStr) {
+  return {
+    today: rows.filter(s => s.date === todayStr).length,
+    pending: rows.filter(s => !s.status).length,
+    excused: rows.filter(s => s.status === "Excused").length,
+    unexcused: rows.filter(s => s.status === "Unexcused").length,
+    total: rows.length,
+  };
 }
 
 // Active categories, so an admin can correct a mis-tapped Nature of Visit.
@@ -130,6 +209,8 @@ async function sendNotification(slipId) {
 
 export default function Dashboard({ profile, onSignOut }) {
   const [slips, setSlips] = useState([]);
+  const [historyCapped, setHistoryCapped] = useState(false); // more confirmed slips exist than are loaded
+  const [counts, setCounts] = useState(null); // exact totals from fetchCounts(); null = use the rows
   const [subCategories, setSubCategories] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -153,16 +234,23 @@ export default function Dashboard({ profile, onSignOut }) {
   const showTabs = isSuperadmin || can("manage_categories") || can("manage_users") || can("manage_directory") || can("manage_settings") || can("view_reports");
   const effectiveViewMode = isMobile ? "card" : viewMode; // phones always use cards
 
+  // Non-critical: if the counts fail, the cards fall back to the loaded rows.
+  async function loadCounts() {
+    try { setCounts(await fetchCounts()); } catch { /* keep the rows-based numbers */ }
+  }
+
   async function loadSlips() {
     setLoading(true); setError("");
     try {
-      const data = await fetchSlips();
-      setSlips(data);
+      const { rows, historyCapped: capped } = await fetchSlips();
+      setSlips(rows);
+      setHistoryCapped(capped);
     } catch (e) {
       setError("Could not load slips: " + e.message);
     } finally {
       setLoading(false);
     }
+    loadCounts();
   }
 
   useEffect(() => { loadSlips(); }, []);
@@ -225,14 +313,8 @@ export default function Dashboard({ profile, onSignOut }) {
     return true;
   });
 
-  const stats = {
-    today: slips.filter(s => s.date === todayStr).length,
-    pending: slips.filter(s => !s.status).length,
-    excused: slips.filter(s => s.status === "Excused").length,
-    unexcused: slips.filter(s => s.status === "Unexcused").length,
-    admit: slips.filter(s => s.status === "Admit Temporarily").length,
-    total: slips.length,
-  };
+  const rowStats = statsFromRows(slips, todayStr);
+  const stats = counts ? { ...rowStats, ...counts } : rowStats;
 
   const s = {
     root: { minHeight: "100vh", background: C.bg, fontFamily: T.font.text, color: C.text },
@@ -352,6 +434,12 @@ export default function Dashboard({ profile, onSignOut }) {
           ) : (
             <CardView slips={filtered} onOpen={setSelectedSlip} flagged={flagged} canConfirm={can("confirm_slips")} />
           )}
+
+          {!loading && historyCapped && (
+            <div style={{ marginTop: 12, fontSize: 12, color: C.textLight, lineHeight: 1.5 }}>
+              Showing every pending slip plus the {HISTORY_LIMIT} most recently filed confirmed slips. Older confirmed slips are in Reports.
+            </div>
+          )}
         </div>
         </>}
       </div>
@@ -363,10 +451,12 @@ export default function Dashboard({ profile, onSignOut }) {
           onSaved={(updated) => {
             setSlips(prev => prev.map(sl => sl.id === updated.id ? updated : sl));
             setSelectedSlip(null);
+            loadCounts();
           }}
           onDeleted={(id) => {
             setSlips(prev => prev.filter(sl => sl.id !== id));
             setSelectedSlip(null);
+            loadCounts();
           }} />
       )}
     </div>
