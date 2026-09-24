@@ -21,6 +21,8 @@ their adviser are emailed a copy.
 - **Scale:** ~2,061 students (Kinder–Grade 12), 175 advisers
 - **Owner:** Marc (IT / system owner, `superadmin`), mihpapna@adi.edu.ph
 - **Supabase project:** `ghofeoxrkrcibzeqcbih` — https://ghofeoxrkrcibzeqcbih.supabase.co
+- **Handover spec:** `POD_Handover.md` — complete description of the system, written
+  for the planned PHP/MariaDB rebuild as a module inside AttendTrack (ABC).
 
 There are sibling school projects (Entrance Exam, ADI Helpdesk, AttendTrack).
 **This repo is React + Supabase only** — nothing here is Google Apps Script.
