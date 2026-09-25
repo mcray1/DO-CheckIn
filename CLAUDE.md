@@ -23,6 +23,8 @@ their adviser are emailed a copy.
 - **Supabase project:** `ghofeoxrkrcibzeqcbih` — https://ghofeoxrkrcibzeqcbih.supabase.co
 - **Handover spec:** `POD_Handover.md` — complete description of the system, written
   for the planned PHP/MariaDB rebuild as a module inside AttendTrack (ABC).
+- **Database report:** `POD_Database_Report.md` — the ABC tables POD reads, how daily
+  attendance is derived from them, the `pod-api.php` feed, and proposed `pod_*` DDL.
 
 There are sibling school projects (Entrance Exam, ADI Helpdesk, AttendTrack).
 **This repo is React + Supabase only** — nothing here is Google Apps Script.
