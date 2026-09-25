@@ -1,0 +1,699 @@
+<title>POD Data Dictionary</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F4F6FA;
+    --surface: #FFFFFF;
+    --surface-2: #EDF1F7;
+    --text: #17233A;
+    --muted: #5B6880;
+    --faint: #8A96AB;
+    --border: #D9DFEA;
+    --border-strong: #B9C3D4;
+    --navy: #12315B;
+    --navy-ink: #FFFFFF;
+    --navy-tint: #E6EDF7;
+    --gold: #B58E33;
+    --live: #1F7A4D;   --live-bg: #E4F3EA;
+    --clinic: #9A5B00; --clinic-bg: #FBEFD9;
+    --planned: #5B4AB8; --planned-bg: #ECE8FA;
+    --focus: #1F5FA9;
+    --shadow: 0 1px 2px rgba(23, 35, 58, 0.06), 0 8px 24px rgba(23, 35, 58, 0.06);
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0F1621;
+      --surface: #171F2C;
+      --surface-2: #1E2836;
+      --text: #E6EBF3;
+      --muted: #9AA7BC;
+      --faint: #6F7C92;
+      --border: #2A3444;
+      --border-strong: #3A4658;
+      --navy: #7FA6E0;
+      --navy-ink: #0F1621;
+      --navy-tint: #1C2B42;
+      --gold: #D9B66A;
+      --live: #6FCB97;   --live-bg: #16311F;
+      --clinic: #E7B56A; --clinic-bg: #3A2A0E;
+      --planned: #B3A6F0; --planned-bg: #2A2450;
+      --focus: #8FB6EE;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0F1621;
+    --surface: #171F2C;
+    --surface-2: #1E2836;
+    --text: #E6EBF3;
+    --muted: #9AA7BC;
+    --faint: #6F7C92;
+    --border: #2A3444;
+    --border-strong: #3A4658;
+    --navy: #7FA6E0;
+    --navy-ink: #0F1621;
+    --navy-tint: #1C2B42;
+    --gold: #D9B66A;
+    --live: #6FCB97;   --live-bg: #16311F;
+    --clinic: #E7B56A; --clinic-bg: #3A2A0E;
+    --planned: #B3A6F0; --planned-bg: #2A2450;
+    --focus: #8FB6EE;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  button, input { font: inherit; color: inherit; }
+  code, .mono { font-family: var(--mono); font-size: 0.93em; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; }
+
+  /* ── Sticky toolbar ─────────────────────────────────────── */
+  .top {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 10;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .top .wrap { padding-block: 14px 12px; display: grid; gap: 12px; }
+  .brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+  .eyebrow {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--gold);
+  }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+  .meta { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .search {
+    flex: 1 1 220px; min-width: 0;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg); border: 1px solid var(--border-strong); border-radius: 8px;
+    padding: 0 10px; height: 36px;
+  }
+  .search svg { width: 16px; height: 16px; flex: none; color: var(--faint); }
+  .search input {
+    flex: 1; min-width: 0; border: 0; background: transparent; outline: none; height: 100%;
+  }
+  .search input::placeholder { color: var(--faint); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    height: 32px; padding: 0 12px; border-radius: 999px;
+    border: 1px solid var(--border-strong); background: var(--surface);
+    cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .chip[aria-pressed="true"] { background: var(--navy); border-color: var(--navy); color: var(--navy-ink); }
+  .chip .n { font-variant-numeric: tabular-nums; opacity: 0.75; }
+  .actions { display: flex; gap: 8px; margin-left: auto; }
+  .btn {
+    height: 36px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border-strong); background: var(--surface); font-weight: 600; font-size: 13.5px;
+    display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+  }
+  .btn svg { width: 16px; height: 16px; }
+  .btn.primary { background: var(--navy); border-color: var(--navy); color: var(--navy-ink); }
+  .btn:disabled { opacity: 0.55; cursor: progress; }
+  .btn .count { font-variant-numeric: tabular-nums; opacity: 0.8; font-weight: 500; }
+
+  /* ── Jump list ──────────────────────────────────────────── */
+  .jump { display: flex; flex-wrap: wrap; gap: 6px; padding-block: 14px 4px; }
+  .jump a {
+    font-family: var(--mono); font-size: 12px; text-decoration: none; color: var(--text);
+    padding: 4px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid transparent;
+  }
+  .jump a:hover { border-color: var(--border-strong); }
+  .jump a.dim { opacity: 0.4; }
+  .jump a::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .jump a[data-status="live"]::before { background: var(--live); }
+  .jump a[data-status="clinic"]::before { background: var(--clinic); }
+  .jump a[data-status="planned"]::before { background: var(--planned); }
+
+  /* ── Legend ────────────────────────────────────────────── */
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 12.5px; padding-block: 6px 18px; }
+  .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  .legend .l-live::before { background: var(--live); }
+  .legend .l-clinic::before { background: var(--clinic); }
+  .legend .l-planned::before { background: var(--planned); }
+
+  /* ── Table sections ────────────────────────────────────── */
+  .group-h {
+    margin: 26px 0 10px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .group-h::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .entity {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    margin-bottom: 14px; overflow: hidden; scroll-margin-top: 170px;
+  }
+  .entity-h { padding: 12px 16px 10px; display: grid; gap: 4px; }
+  .entity-h .row1 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+  .entity-h h2 { margin: 0; font-family: var(--mono); font-size: 16px; font-weight: 500; }
+  .pill {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .pill.live { color: var(--live); background: var(--live-bg); }
+  .pill.clinic { color: var(--clinic); background: var(--clinic-bg); }
+  .pill.planned { color: var(--planned); background: var(--planned-bg); }
+  .pill.group { color: var(--muted); background: var(--surface-2); }
+  .purpose { color: var(--muted); max-width: 72ch; }
+  .keys { color: var(--faint); font-size: 12.5px; }
+  .keys code { color: var(--muted); }
+
+  .tbl-wrap { overflow-x: auto; border-top: 1px solid var(--border); }
+  table { border-collapse: collapse; width: 100%; min-width: 880px; }
+  th {
+    text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); padding: 8px 12px; background: var(--surface-2); white-space: nowrap;
+  }
+  td { padding: 8px 12px; border-top: 1px solid var(--border); vertical-align: top; }
+  td.c-col { font-family: var(--mono); font-weight: 500; white-space: nowrap; }
+  td.c-type { font-family: var(--mono); color: var(--muted); white-space: nowrap; font-size: 12.5px; }
+  td.c-null, td.c-def { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  td.c-key { white-space: nowrap; }
+  td.c-mean { min-width: 240px; max-width: 420px; }
+  td.c-pod { min-width: 180px; max-width: 320px; color: var(--muted); }
+  .k {
+    font-family: var(--mono); font-size: 11px; font-weight: 500; padding: 1px 6px; border-radius: 4px;
+    border: 1px solid var(--border-strong); color: var(--muted); margin-right: 4px; white-space: nowrap;
+  }
+  .k.pk { color: var(--gold); border-color: var(--gold); }
+  .k.fk { color: var(--navy); border-color: var(--navy); }
+  mark { background: var(--gold); color: var(--text); padding: 0 1px; border-radius: 2px; }
+  :root:not([data-theme="light"]) mark { color: var(--navy-ink); }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+
+  .note { color: var(--muted); font-size: 12.5px; max-width: 72ch; }
+  footer.wrap { padding-block: 26px 40px; display: grid; gap: 10px; color: var(--muted); font-size: 12.5px; }
+  footer p { margin: 0; max-width: 78ch; }
+
+  /* ── Copy fallback + toast ─────────────────────────────── */
+  .fallback { margin: 12px 0 0; }
+  .fallback textarea {
+    width: 100%; height: 140px; font-family: var(--mono); font-size: 12px;
+    border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px; background: var(--bg); color: var(--text);
+  }
+  .toast {
+    position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 13.5px;
+    box-shadow: var(--shadow); max-width: min(92vw, 520px); z-index: 20;
+    transition: opacity 180ms ease;
+  }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+
+  @media (max-width: 640px) {
+    .actions { margin-left: 0; width: 100%; }
+    .actions .btn { flex: 1; justify-content: center; }
+    .entity { scroll-margin-top: 260px; }
+  }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <span class="eyebrow">POD × AttendTrack</span>
+      <h1>Data Dictionary</h1>
+      <span class="meta" id="meta"></span>
+    </div>
+    <div class="tools">
+      <label class="search" for="q">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13.5 13.5 17 17"/></svg>
+        <input id="q" type="search" placeholder="Search tables, columns, types, meaning…" autocomplete="off" aria-label="Search the dictionary">
+      </label>
+      <div class="chips" id="groups" role="group" aria-label="Filter by group"></div>
+      <div class="actions">
+        <button class="btn primary" id="dl" type="button">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3v10m0 0 4-4m-4 4-4-4M4 16h12"/></svg>
+          Download CSV <span class="count" id="dl-n"></span>
+        </button>
+        <button class="btn" id="cp" type="button">Copy CSV</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <nav class="jump" id="jump" aria-label="Jump to a table"></nav>
+  <div class="legend">
+    <span class="l-live">Live: on the deployed branch</span>
+    <span class="l-clinic">Clinic: newest branch only</span>
+    <span class="l-planned">Planned: proposed pod_* table</span>
+  </div>
+  <div id="fallback" class="fallback" hidden>
+    <p class="note">Copying was blocked in this view. The CSV is selected below; press Ctrl+C or Cmd+C.</p>
+    <textarea id="fallback-text" readonly aria-label="CSV text"></textarea>
+  </div>
+  <div id="out"></div>
+</main>
+
+<footer class="wrap">
+  <p>Columns and types are read from <code>db/schema.sql</code> on attendtrack <code>clinic</code> at <code>7638033</code> (2026-09-21) and confirmed identical on <code>live</code> at <code>ab45e99</code> (2026-09-01), except <code>users.role</code>, which is an ENUM on live and a VARCHAR(32) on clinic. The five <code>pod_*</code> tables are the proposal in <code>POD_Database_Report.md</code> §6 and do not exist yet.</p>
+  <p>The CSV follows the current filter and search. Columns: table, group, status, column, type, nullable, default, key, meaning, pod_use. Text cells that begin with =, +, − or @ are prefixed with an apostrophe so a spreadsheet never treats them as formulas.</p>
+</footer>
+
+<script>
+  // ── Data ──────────────────────────────────────────────────────────────
+  // Row: [column, type, nullable, default, key, meaning, podUse]
+  var TABLES = [
+    { name: "sections", group: "Roster", status: "live",
+      purpose: "One row per class section per school year. The label is the join key to POD's historical grade_section text.",
+      keys: "UNIQUE (school_year, grade, section_name)",
+      cols: [
+        ["section_id", "INT UNSIGNED", "no", "auto", "PK", "Section identity.", "section_id on a slip"],
+        ["grade", "VARCHAR(20)", "no", "", "", "'Grade 7', 'Kinder', 'Prep'. grade_band() matches ^Grade (\\d+)$, so the word Grade is stored.", "Department: GS ≤ 6, JHS 7–10, SHS 11–12; Kinder/Prep → GS"],
+        ["section_name", "VARCHAR(50)", "no", "", "", "'A', 'St. Ignatius', 'Obedience'.", ""],
+        ["label", "VARCHAR(80)", "no", "", "", "Display label 'Grade 7 - A'. Built by the importer as grade + ' - ' + section_name.", "Same shape as POD's grade_section; section_label snapshot on a slip"],
+        ["school_year", "VARCHAR(9)", "no", "", "UQ", "'2026-2027'.", ""],
+        ["adviser_email", "VARCHAR(190)", "yes", "NULL", "", "The adviser's email as a string. Can disagree with users.section_id.", "Kiosk adviser auto-assign, second choice after users.section_id"]
+      ]},
+    { name: "students", group: "Roster", status: "live",
+      purpose: "The roster. Natural primary key, the same student_no POD stores on every slip.",
+      keys: "KEY idx_students_section (section_id) · KEY idx_students_household (household_id)",
+      cols: [
+        ["student_no", "VARCHAR(20)", "no", "", "PK", "School-issued number; the identity key everywhere.", "student_no on a slip; kiosk search"],
+        ["full_name", "VARCHAR(150)", "no", "", "", "As in the registrar workbook.", "student_name snapshot on a slip"],
+        ["section_id", "INT UNSIGNED", "no", "", "FK → sections", "Current section. Moving a student rewrites this; history follows the new section.", "Section of a slip; adviser lookup"],
+        ["gender", "ENUM('M','F')", "yes", "NULL", "", "Importer normalises 'Male'/'Female'.", ""],
+        ["program", "VARCHAR(60)", "yes", "NULL", "", "'Grade School', 'STEM STRAND', … from the workbook.", ""],
+        ["rfid", "VARCHAR(40)", "yes", "NULL", "", "Card tag from the workbook; no code path uses it yet.", ""],
+        ["date_enrolled", "DATE", "yes", "NULL", "", "", ""],
+        ["email", "VARCHAR(190)", "yes", "NULL", "", "Empty in the live data: the roster import has no email column.", "Student notification address. POD holds emails for all but 16 students and is the richer source"],
+        ["household_id", "INT UNSIGNED", "yes", "NULL", "FK → households (SET NULL)", "Sibling grouping for parent events.", ""],
+        ["active", "TINYINT(1)", "no", "1", "", "Soft removal; check-in history stays intact.", "Kiosk search shows active students only"]
+      ]},
+    { name: "users", group: "Roster", status: "live",
+      purpose: "Staff accounts. POD's profiles and teachers both map here. role is an ENUM on live and a VARCHAR(32) on clinic.",
+      keys: "UNIQUE uq_users_email (email) · FK users.section_id → sections (SET NULL)",
+      cols: [
+        ["user_id", "INT UNSIGNED", "no", "auto", "PK", "", "adviser_user_id and confirmed_by_user_id on a slip"],
+        ["email", "VARCHAR(190)", "no", "", "UQ", "Login identity.", "Match key from POD's teachers.email; adviser address at send time"],
+        ["full_name", "VARCHAR(150)", "no", "", "", "", "adviser_name and confirmed_by snapshots"],
+        ["role", "ENUM(5) live · VARCHAR(32) clinic", "no", "'teacher'", "", "Built-ins superadmin, admin, adviser, teacher, nonteaching; custom roles on clinic (roles table, behind enableCustomRoles).", "Role → permission atoms; POD adds pod, pod_manage, pod_config, pod_reports atoms"],
+        ["password_hash", "VARCHAR(255)", "no", "''", "", "Empty string = invited, cannot sign in yet.", ""],
+        ["must_set_password", "TINYINT(1)", "no", "1", "", "First login goes through the set-password flow.", "Same idea as POD's must_change_password"],
+        ["bands", "VARCHAR(30)", "yes", "NULL", "", "CSV of GS, JHS, SHS. Blank means unrestricted.", ""],
+        ["designations", "VARCHAR(60)", "yes", "NULL", "", "Self-declared at invite: teacher, adviser, MLA, TLA, nonteaching.", ""],
+        ["section_id", "INT UNSIGNED", "yes", "NULL", "FK → sections (SET NULL)", "An adviser's homeroom section.", "First choice for resolving a section's adviser"],
+        ["active", "TINYINT(1)", "no", "1", "", "", ""],
+        ["created_at", "DATETIME", "no", "CURRENT_TIMESTAMP", "", "Manila local time.", ""]
+      ]},
+    { name: "subjects", group: "Roster", status: "live",
+      purpose: "Subject names, from the old Config sheet plus ad-hoc names found in attendance rows.",
+      keys: "UNIQUE uq_subjects_name (name)",
+      cols: [
+        ["subject_id", "INT UNSIGNED", "no", "auto", "PK", "", ""],
+        ["name", "VARCHAR(80)", "no", "", "UQ", "", "Per-subject breakdown of a day, if POD ever shows it"],
+        ["active", "TINYINT(1)", "no", "1", "", "", ""]
+      ]},
+    { name: "settings", group: "Roster", status: "live",
+      purpose: "Key/value store, cached per request. Keys are camelCase. Feature flags use '0' off, 'owner' superadmin-only, '1' on. POD keys: podApiKey today; enablePod, podRepeatThreshold, podSchoolYearStartMonth, podCountWeekends, podKioskClosed, podKioskMessage, podEmailAdvisers, podEmailStudents, podSenderEmail proposed.",
+      keys: "",
+      cols: [
+        ["setting_key", "VARCHAR(60)", "no", "", "PK", "camelCase by convention.", "podApiKey holds the feed secret; schoolYear and currentSemester scope every timetable read"],
+        ["setting_value", "TEXT", "no", "", "", "Strings and JSON blobs.", ""],
+        ["updated_at", "DATETIME", "no", "CURRENT_TIMESTAMP, on update", "", "", ""]
+      ]},
+
+    { name: "attendance_records", group: "Attendance", status: "live",
+      purpose: "One row per recorded slot: a section, on a date, for a subject (class mode) or a named session, in a half-day.",
+      keys: "UNIQUE uq_att_slot (record_date, section_id, mode, subject_id, session_name, half) — skips NULLs, so it never blocks a duplicate class slot; attnSave holds GET_LOCK() instead · KEY idx_att_date · KEY idx_att_section",
+      cols: [
+        ["record_id", "BIGINT UNSIGNED", "no", "auto", "PK", "", ""],
+        ["record_date", "DATE", "no", "", "IDX", "The school day.", "Joins to a slip's absence range or filed_date"],
+        ["section_id", "INT UNSIGNED", "yes", "NULL", "FK → sections", "NULL for school-wide records (mode = 'school').", ""],
+        ["mode", "ENUM('class','school','session')", "no", "'class'", "", "class = subject period; session = named non-subject period such as Club Time; school = school-wide.", "The daily roll-up uses class and session only"],
+        ["subject_id", "INT UNSIGNED", "yes", "NULL", "FK → subjects", "Set for class mode only.", "Day-level match against timetable_slots"],
+        ["session_name", "VARCHAR(80)", "yes", "NULL", "", "'Club Time', 'Blue Entablado' when mode is session.", ""],
+        ["teacher_name", "VARCHAR(120)", "yes", "NULL", "", "Free text from the old data; not always a user.", ""],
+        ["recorded_by", "INT UNSIGNED", "yes", "NULL", "FK → users (SET NULL)", "The staff account that saved it.", ""],
+        ["half", "ENUM('AM','PM')", "yes", "NULL", "", "Which half-day; ampmCutoff decides.", "Check a morning-only absence against AM records"],
+        ["period", "TINYINT UNSIGNED", "yes", "NULL", "", "Teacher-set slot number; NULL = inferred from recording order.", "Soft; use day-level matching, never period equality"],
+        ["locked", "TINYINT(1)", "no", "0", "", "Finalised record.", ""],
+        ["created_at", "DATETIME", "no", "CURRENT_TIMESTAMP", "", "", ""],
+        ["updated_at", "DATETIME", "no", "CURRENT_TIMESTAMP, on update", "", "", ""]
+      ]},
+    { name: "attendance_marks", group: "Attendance", status: "live",
+      purpose: "One mark per student per recorded slot. Deleting a record deletes its marks. The only source of a student's attendance.",
+      keys: "KEY idx_marks_student (student_no)",
+      cols: [
+        ["record_id", "BIGINT UNSIGNED", "no", "", "PK, FK → attendance_records (CASCADE)", "", ""],
+        ["student_no", "VARCHAR(20)", "no", "", "PK, FK → students", "", "Everything POD shows about attendance is computed from this join"],
+        ["status", "VARCHAR(4)", "no", "", "", "P present · A absent · L late · E excused.", "Daily roll-up: A if all A; half if any A; E if all E; L if any L; else P"]
+      ]},
+
+    { name: "timetable_slots", group: "Schedule", status: "live",
+      purpose: "The published weekly schedule, one row per section × weekday × period, per school year and semester. Maintained on timetable.php (config atom).",
+      keys: "UNIQUE uq_tt_slot (school_year, semester, section_id, weekday, period) · KEY idx_tt_section",
+      cols: [
+        ["slot_id", "INT UNSIGNED", "no", "auto", "PK", "", ""],
+        ["school_year", "VARCHAR(9)", "no", "'2026-2027'", "UQ", "Every read filters on the schoolYear setting.", ""],
+        ["semester", "TINYINT", "no", "0", "UQ", "0 whole year (K–10); 1/2 SHS semesters. Reads filter semester IN (0, currentSemester).", ""],
+        ["section_id", "INT UNSIGNED", "no", "", "UQ, FK → sections (CASCADE)", "", "Expected classes for a student's section on a date"],
+        ["weekday", "TINYINT", "no", "", "UQ", "1 = Monday … 5 = Friday.", "Compared with the effective weekday from schedule_for_date()"],
+        ["period", "TINYINT", "no", "", "UQ", "1–8; Grade School uses 1–6.", ""],
+        ["start_time", "TIME", "yes", "NULL", "", "", ""],
+        ["end_time", "TIME", "yes", "NULL", "", "", ""],
+        ["subject_id", "INT UNSIGNED", "yes", "NULL", "FK → subjects (SET NULL)", "Set for a teachable class slot.", "Only slots with a subject count as expected classes"],
+        ["label", "VARCHAR(60)", "yes", "NULL", "", "Non-subject slot: Homeroom, Club Meeting, Flag Ceremony, Library Time, LSP, Circle Time, Disposition Setting.", ""],
+        ["teacher_user_id", "INT UNSIGNED", "yes", "NULL", "FK → users (SET NULL)", "The staff account, when matched. The fuller record of who teaches what.", ""],
+        ["teacher_name", "VARCHAR(120)", "yes", "NULL", "", "Raw name from the programme; fallback and audit.", ""]
+      ]},
+    { name: "schedule_day_overrides", group: "Schedule", status: "live",
+      purpose: "One row per calendar date that departs from the weekday schedule: a holiday, or a day that follows another weekday's timetable.",
+      keys: "",
+      cols: [
+        ["override_date", "DATE", "no", "", "PK", "", "schedule_for_date() checks this first"],
+        ["follows_weekday", "TINYINT", "yes", "NULL", "", "1–5: run that weekday's timetable. NULL: no classes.", "A NULL here means no classes were expected that day"],
+        ["note", "VARCHAR(120)", "yes", "NULL", "", "'Foundation Day'.", "Shown beside a slip dated on a holiday"],
+        ["created_by", "INT UNSIGNED", "yes", "NULL", "FK → users (SET NULL)", "", ""],
+        ["created_at", "DATETIME", "no", "CURRENT_TIMESTAMP", "", "", ""]
+      ]},
+    { name: "class_cancellations", group: "Schedule", status: "live",
+      purpose: "One row per class that did not meet on a date. API actions cancelClass and uncancelClass.",
+      keys: "UNIQUE uq_cancel (cancel_date, section_id, subject_id) · KEY idx_cancel_date",
+      cols: [
+        ["cancel_id", "INT UNSIGNED", "no", "auto", "PK", "", ""],
+        ["cancel_date", "DATE", "no", "", "UQ, IDX", "", "Subtracted from expected classes"],
+        ["section_id", "INT UNSIGNED", "no", "", "UQ, FK → sections (CASCADE)", "", ""],
+        ["subject_id", "INT UNSIGNED", "no", "", "UQ, FK → subjects (CASCADE)", "", ""],
+        ["reason", "VARCHAR(120)", "yes", "NULL", "", "", ""],
+        ["cancelled_by", "INT UNSIGNED", "yes", "NULL", "FK → users (SET NULL)", "", ""],
+        ["created_at", "DATETIME", "no", "CURRENT_TIMESTAMP", "", "", ""]
+      ]},
+    { name: "teacher_assignments", group: "Schedule", status: "live",
+      purpose: "Which teacher handles which subject in which section. Preference data until enforceClassOwnership is on; then also an access input through teacher_teaches().",
+      keys: "",
+      cols: [
+        ["user_id", "INT UNSIGNED", "no", "", "PK, FK → users (CASCADE)", "", ""],
+        ["section_id", "INT UNSIGNED", "no", "", "PK, FK → sections (CASCADE)", "", ""],
+        ["subject_id", "INT UNSIGNED", "no", "", "PK, FK → subjects (CASCADE)", "", ""],
+        ["created_at", "DATETIME", "no", "CURRENT_TIMESTAMP", "", "", ""]
+      ]},
+
+    { name: "pod_categories", group: "Planned pod_*", status: "planned",
+      purpose: "Nature of Visit. Two flags replace POD's checks on the names 'Absent' and 'Late'.",
+      keys: "UNIQUE uq_pod_cat_name (name)",
+      cols: [
+        ["category_id", "INT UNSIGNED", "no", "auto", "PK", "", ""],
+        ["name", "VARCHAR(60)", "no", "", "UQ", "Late, Absent, Uniform, Hairstyle, Gadget, POST, Suspension, Others.", "Kiosk button label; category_name snapshot on a slip"],
+        ["description", "VARCHAR(200)", "yes", "NULL", "", "Button tooltip.", ""],
+        ["requires_reason", "TINYINT(1)", "no", "1", "", "Kiosk asks for a reason of at least 10 characters.", ""],
+        ["requires_adviser", "TINYINT(1)", "no", "0", "", "", ""],
+        ["asks_absence_dates", "TINYINT(1)", "no", "0", "", "Replaces the check name = 'Absent'.", ""],
+        ["asks_meridiem", "TINYINT(1)", "no", "0", "", "Replaces the check name = 'Late'.", ""],
+        ["colour", "CHAR(7)", "yes", "NULL", "", "'#B25000'; NULL derives a colour from the name.", ""],
+        ["icon", "VARCHAR(8)", "yes", "NULL", "", "", ""],
+        ["active", "TINYINT(1)", "no", "1", "", "Inactive categories leave the kiosk but stay on old slips.", ""],
+        ["sort_order", "SMALLINT", "no", "0", "", "Button order.", ""]
+      ]},
+    { name: "pod_sub_categories", group: "Planned pod_*", status: "planned",
+      purpose: "Classified reasons within a category, with the document rule each one carries.",
+      keys: "UNIQUE uq_pod_sub (category_id, name)",
+      cols: [
+        ["sub_category_id", "INT UNSIGNED", "no", "auto", "PK", "", ""],
+        ["category_id", "INT UNSIGNED", "no", "", "UQ, FK → pod_categories", "", ""],
+        ["name", "VARCHAR(80)", "no", "", "UQ", "Health, Traffic, OSR, Travel, Woke Up Late, Family Matters, …", "Stored by name on a slip (ai_sub_category, final_sub_category)"],
+        ["suggested_status", "ENUM('Excused','Unexcused','Admit Temporarily')", "no", "'Admit Temporarily'", "", "Admin display; the classifier uses the keyword's status.", ""],
+        ["document_required", "TINYINT(1)", "no", "0", "", "", "Copied to the slip at filing"],
+        ["document_description", "VARCHAR(150)", "yes", "NULL", "", "'Medical certificate'.", "Snapshot to the slip at filing (POD never wrote this)"],
+        ["document_deadline_days", "TINYINT UNSIGNED", "yes", "NULL", "", "Days from filing to the deadline.", ""],
+        ["active", "TINYINT(1)", "no", "1", "", "", ""],
+        ["sort_order", "SMALLINT", "no", "0", "", "", ""]
+      ]},
+    { name: "pod_keywords", group: "Planned pod_*", status: "planned",
+      purpose: "Classifier vocabulary. category_id NULL means the keyword applies to any category (was nature = 'Any').",
+      keys: "KEY idx_pod_kw_sub (sub_category_id)",
+      cols: [
+        ["keyword_id", "INT UNSIGNED", "no", "auto", "PK", "", ""],
+        ["sub_category_id", "INT UNSIGNED", "no", "", "FK → pod_sub_categories (CASCADE)", "", ""],
+        ["category_id", "INT UNSIGNED", "yes", "NULL", "FK → pod_categories", "NULL = any category.", ""],
+        ["keyword", "VARCHAR(80)", "no", "", "", "Stored lowercase; matched as a substring of the reason.", ""],
+        ["weight", "TINYINT UNSIGNED", "no", "1", "", "Score added on a match; confidence is high at 2 or more.", ""],
+        ["suggested_status", "ENUM('Excused','Unexcused','Admit Temporarily')", "no", "'Admit Temporarily'", "", "The status this match votes for.", ""],
+        ["active", "TINYINT(1)", "no", "1", "", "", ""]
+      ]},
+    { name: "pod_slips", group: "Planned pod_*", status: "planned",
+      purpose: "The admission slip. Snapshots keep a slip readable after a rename or section move; the foreign keys keep it joinable to attendance.",
+      keys: "KEY idx_pod_slips_date (filed_date) · KEY idx_pod_slips_student (student_no, filed_date) · KEY idx_pod_slips_queue (status, filed_date) · KEY idx_pod_slips_section (section_id)",
+      cols: [
+        ["slip_id", "INT UNSIGNED", "no", "auto", "PK", "Shown as REF # in emails.", ""],
+        ["filed_at", "DATETIME", "no", "CURRENT_TIMESTAMP", "", "Manila. Replaces created_at (UTC) and time_arrived.", ""],
+        ["filed_date", "DATE", "no", "", "IDX", "DATE(filed_at). Replaces the text date label; reports bucket by this.", ""],
+        ["student_no", "VARCHAR(20)", "no", "", "IDX, FK → students", "", ""],
+        ["student_name", "VARCHAR(150)", "no", "", "", "Snapshot.", ""],
+        ["section_id", "INT UNSIGNED", "yes", "NULL", "IDX, FK → sections (SET NULL)", "", ""],
+        ["section_label", "VARCHAR(80)", "yes", "NULL", "", "Snapshot 'Grade 9 - Obedience'.", ""],
+        ["category_id", "INT UNSIGNED", "no", "", "FK → pod_categories", "", ""],
+        ["category_name", "VARCHAR(60)", "no", "", "", "Snapshot. Replaces the one-element nature[] array.", ""],
+        ["adviser_user_id", "INT UNSIGNED", "yes", "NULL", "FK → users (SET NULL)", "", ""],
+        ["adviser_name", "VARCHAR(150)", "yes", "NULL", "", "Snapshot. The adviser's email is resolved at send time, never stored.", ""],
+        ["reason", "VARCHAR(500)", "yes", "NULL", "", "Student-typed.", ""],
+        ["meridiem", "ENUM('AM','PM')", "yes", "NULL", "", "Categories with asks_meridiem only.", ""],
+        ["absence_from", "DATE", "yes", "NULL", "", "First day absent.", ""],
+        ["absence_to", "DATE", "yes", "NULL", "", "Last day absent; equals absence_from for one day.", ""],
+        ["absence_days", "DECIMAL(4,1)", "yes", "NULL", "", "Fractional count; the POD may override.", ""],
+        ["absence_half", "VARCHAR(60)", "yes", "NULL", "", "'morning', 'afternoon', or 'first day afternoon, last day morning'.", ""],
+        ["ai_sub_category", "VARCHAR(80)", "yes", "NULL", "", "Classifier suggestion.", ""],
+        ["ai_status", "ENUM('Excused','Unexcused','Admit Temporarily')", "yes", "NULL", "", "Classifier suggestion.", ""],
+        ["ai_explanation", "VARCHAR(200)", "yes", "NULL", "", "", ""],
+        ["status", "ENUM('Excused','Unexcused','Admit Temporarily')", "yes", "NULL", "IDX", "NULL = pending.", ""],
+        ["final_sub_category", "VARCHAR(80)", "yes", "NULL", "", "Name chosen at confirmation.", ""],
+        ["confirmed_by_user_id", "INT UNSIGNED", "yes", "NULL", "FK → users (SET NULL)", "", ""],
+        ["confirmed_by", "VARCHAR(150)", "yes", "NULL", "", "Snapshot.", ""],
+        ["confirmed_at", "DATETIME", "yes", "NULL", "", "", ""],
+        ["document_required", "TINYINT(1)", "no", "0", "", "", ""],
+        ["document_description", "VARCHAR(150)", "yes", "NULL", "", "Snapshot from the sub-category.", ""],
+        ["document_deadline", "DATE", "yes", "NULL", "", "Replaces the text label.", ""],
+        ["document_status", "ENUM('Not Required','Promised','Received')", "no", "'Not Required'", "", "", ""],
+        ["adviser_notified_at", "DATETIME", "yes", "NULL", "", "Replaces notification_sent and notification_sent_at.", ""],
+        ["student_notified_at", "DATETIME", "yes", "NULL", "", "Replaces student_notification_sent and its timestamp.", ""],
+        ["deleted_at", "DATETIME", "yes", "NULL", "", "Soft delete; the audit table carries who.", ""],
+        ["updated_at", "DATETIME", "no", "CURRENT_TIMESTAMP, on update", "", "", ""]
+      ]},
+    { name: "pod_slip_mail", group: "Planned pod_*", status: "planned",
+      purpose: "Which mail_queue row carried which slip to whom. mail_queue rows are pruned after 90 days, so the link keeps its own snapshot.",
+      keys: "KEY idx_pod_mail_slip (slip_id)",
+      cols: [
+        ["slip_mail_id", "INT UNSIGNED", "no", "auto", "PK", "", ""],
+        ["slip_id", "INT UNSIGNED", "no", "", "IDX, FK → pod_slips (CASCADE)", "", ""],
+        ["recipient", "ENUM('adviser','student')", "no", "", "", "", ""],
+        ["to_email", "VARCHAR(190)", "no", "", "", "Snapshot of the address used.", ""],
+        ["mail_id", "BIGINT UNSIGNED", "yes", "NULL", "FK → mail_queue (SET NULL)", "Cleared when the queue row is pruned.", ""],
+        ["queued_at", "DATETIME", "no", "CURRENT_TIMESTAMP", "", "", ""]
+      ]}
+  ];
+
+  var GROUPS = ["Roster", "Attendance", "Schedule", "Planned pod_*"];
+  var STATUS_LABEL = { live: "Live", clinic: "Clinic", planned: "Planned" };
+  var CSV_HEAD = ["table", "group", "status", "column", "type", "nullable", "default", "key", "meaning", "pod_use"];
+
+  // ── State ──────────────────────────────────────────────────────────────
+  var state = { group: "All", q: "" };
+  try { var savedGroup = localStorage.getItem("podDict.group"); if (savedGroup) state.group = savedGroup; } catch (e) {}
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function hl(s) {
+    var text = esc(s);
+    var q = state.q.trim();
+    if (!q) return text;
+    var re = new RegExp("(" + q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
+    return text.replace(re, "<mark>$1</mark>");
+  }
+
+  // Rows that survive the group filter and the search.
+  function visibleRows() {
+    var q = state.q.trim().toLowerCase();
+    var out = [];
+    TABLES.forEach(function (t) {
+      if (state.group !== "All" && t.group !== state.group) return;
+      t.cols.forEach(function (c) {
+        if (q) {
+          var hay = (t.name + " " + t.group + " " + c.join(" ")).toLowerCase();
+          if (hay.indexOf(q) === -1) return;
+        }
+        out.push({ t: t, c: c });
+      });
+    });
+    return out;
+  }
+
+  function keyChips(k) {
+    if (!k) return "";
+    return k.split(",").map(function (part) {
+      var p = part.trim();
+      var cls = /^PK/.test(p) ? "pk" : /FK/.test(p) ? "fk" : "";
+      return '<span class="k ' + cls + '">' + esc(p) + "</span>";
+    }).join("");
+  }
+
+  function render() {
+    var rows = visibleRows();
+    var byTable = {};
+    rows.forEach(function (r) { (byTable[r.t.name] = byTable[r.t.name] || []).push(r.c); });
+
+    var html = "";
+    GROUPS.forEach(function (g) {
+      var tables = TABLES.filter(function (t) { return t.group === g && byTable[t.name]; });
+      if (!tables.length) return;
+      html += '<h3 class="group-h">' + esc(g) + "</h3>";
+      tables.forEach(function (t) {
+        var cols = byTable[t.name];
+        html += '<section class="entity" id="t-' + t.name + '">' +
+          '<div class="entity-h"><div class="row1"><h2>' + hl(t.name) + "</h2>" +
+          '<span class="pill ' + t.status + '">' + STATUS_LABEL[t.status] + "</span>" +
+          '<span class="pill group">' + esc(t.group) + "</span>" +
+          '<span class="meta">' + cols.length + (cols.length === t.cols.length ? "" : " of " + t.cols.length) + " columns</span></div>" +
+          '<p class="purpose">' + hl(t.purpose) + "</p>" +
+          (t.keys ? '<p class="keys">' + esc(t.keys) + "</p>" : "") +
+          "</div>" +
+          '<div class="tbl-wrap"><table><thead><tr>' +
+          "<th>Column</th><th>Type</th><th>Null</th><th>Default</th><th>Key</th><th>Meaning</th><th>POD use</th>" +
+          "</tr></thead><tbody>";
+        cols.forEach(function (c) {
+          html += "<tr>" +
+            '<td class="c-col">' + hl(c[0]) + "</td>" +
+            '<td class="c-type">' + hl(c[1]) + "</td>" +
+            '<td class="c-null">' + esc(c[2]) + "</td>" +
+            '<td class="c-def">' + esc(c[3] || "—") + "</td>" +
+            '<td class="c-key">' + keyChips(c[4]) + "</td>" +
+            '<td class="c-mean">' + hl(c[5]) + "</td>" +
+            '<td class="c-pod">' + hl(c[6]) + "</td>" +
+            "</tr>";
+        });
+        html += "</tbody></table></div></section>";
+      });
+    });
+    if (!rows.length) html = '<div class="empty">Nothing matches. Try a shorter word, or clear the group filter.</div>';
+    $("out").innerHTML = html;
+
+    // Toolbar counts and jump list.
+    var total = TABLES.reduce(function (n, t) { return n + t.cols.length; }, 0);
+    $("meta").textContent = TABLES.length + " tables · " + total + " columns · schema as of 2026-09-21";
+    $("dl-n").textContent = "· " + rows.length + (rows.length === 1 ? " row" : " rows");
+    $("jump").innerHTML = TABLES.map(function (t) {
+      return '<a href="#t-' + t.name + '" data-status="' + t.status + '"' + (byTable[t.name] ? "" : ' class="dim"') + ">" + esc(t.name) + "</a>";
+    }).join("");
+    renderChips(byTable);
+  }
+
+  function renderChips(byTable) {
+    var counts = { All: 0 };
+    GROUPS.forEach(function (g) { counts[g] = 0; });
+    TABLES.forEach(function (t) {
+      var n = (byTable[t.name] || []).length;
+      counts[t.group] += n; counts.All += n;
+    });
+    // Counts reflect search only, so a chip shows what choosing it would give.
+    if (state.group !== "All") {
+      var q = state.q.trim().toLowerCase();
+      GROUPS.concat(["All"]).forEach(function (g) {
+        counts[g] = TABLES.filter(function (t) { return g === "All" || t.group === g; }).reduce(function (n, t) {
+          return n + t.cols.filter(function (c) { return !q || (t.name + " " + t.group + " " + c.join(" ")).toLowerCase().indexOf(q) !== -1; }).length;
+        }, 0);
+      });
+    }
+    $("groups").innerHTML = ["All"].concat(GROUPS).map(function (g) {
+      return '<button type="button" class="chip" data-group="' + esc(g) + '" aria-pressed="' + (state.group === g) + '">' +
+        esc(g) + ' <span class="n">' + counts[g] + "</span></button>";
+    }).join("");
+  }
+
+  // ── CSV ────────────────────────────────────────────────────────────────
+  function cell(v) {
+    var s = String(v == null ? "" : v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;        // never a formula
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  function buildCSV() {
+    var lines = [CSV_HEAD.map(cell).join(",")];
+    visibleRows().forEach(function (r) {
+      lines.push([r.t.name, r.t.group, STATUS_LABEL[r.t.status], r.c[0], r.c[1], r.c[2], r.c[3], r.c[4], r.c[5], r.c[6]].map(cell).join(","));
+    });
+    return "﻿" + lines.join("\r\n") + "\r\n";
+  }
+  function csvName() {
+    var scope = state.group === "All" ? "all" : state.group.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    return "pod-abc-data-dictionary-" + scope + ".csv";
+  }
+
+  // ── Toast ──────────────────────────────────────────────────────────────
+  var toastTimer = null;
+  function toast(msg) {
+    var el = document.querySelector(".toast");
+    if (!el) { el = document.createElement("div"); el.className = "toast"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+    el.textContent = msg; el.style.opacity = "1";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.style.opacity = "0"; }, 3200);
+  }
+
+  // ── Download (runtime capability) ─────────────────────────────────────
+  var downloads = null;
+  var dlBtn = $("dl");
+  dlBtn.addEventListener("click", function () {
+    if (!downloads) { toast("Downloads aren't available in this view. Use Copy CSV."); return; }
+    var rows = visibleRows().length;
+    if (!rows) { toast("Nothing to download with the current filter."); return; }
+    dlBtn.disabled = true;
+    downloads.save({ filename: csvName(), data: buildCSV() }).then(function (res) {
+      if (res && res.status === "saved") toast("Saved " + rows + " rows to " + csvName());
+    }).catch(function (err) {
+      var code = err && err.code;
+      if (code === "declined") toast("Download cancelled.");
+      else if (code === "rate_limited") toast("A download prompt is already open. Answer it, then try again.");
+      else if (code === "extension_not_enabled") toast("CSV downloads are switched off in this view.");
+      else { toast("Download isn't available here. Use Copy CSV."); dlBtn.hidden = true; }
+    }).then(function () { dlBtn.disabled = false; });
+  });
+
+  // ── Copy fallback ──────────────────────────────────────────────────────
+  $("cp").addEventListener("click", function () {
+    var csv = buildCSV();
+    var rows = visibleRows().length;
+    var done = function () { toast("Copied " + rows + " rows as CSV."); $("fallback").hidden = true; };
+    var fail = function () {
+      var box = $("fallback"), ta = $("fallback-text");
+      box.hidden = false; ta.value = csv; ta.focus(); ta.select();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(csv).then(done, fail);
+    } else fail();
+  });
+
+  // ── Wiring ─────────────────────────────────────────────────────────────
+  $("q").addEventListener("input", function (e) { state.q = e.target.value; render(); });
+  $("groups").addEventListener("click", function (e) {
+    var b = e.target.closest(".chip"); if (!b) return;
+    state.group = b.getAttribute("data-group");
+    try { localStorage.setItem("podDict.group", state.group); } catch (err) {}
+    render();
+  });
+  render();
+
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("downloads").then(function (ns) {
+      downloads = ns;
+      if (!ns) dlBtn.hidden = true;   // no file saves in this view; Copy CSV stays
+    }, function () { dlBtn.hidden = true; });
+  } else {
+    dlBtn.hidden = true;
+  }
+</script>
