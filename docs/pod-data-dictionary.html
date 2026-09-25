@@ -253,8 +253,9 @@
     <span class="l-clinic">Clinic: newest branch only</span>
     <span class="l-planned">Planned: proposed pod_* table</span>
   </div>
+  <p class="note" id="dl-note" hidden>This view can't save files directly. Download CSV will try a browser download, then show the CSV text to copy into a file.</p>
   <div id="fallback" class="fallback" hidden>
-    <p class="note">Copying was blocked in this view. The CSV is selected below; press Ctrl+C or Cmd+C.</p>
+    <p class="note" id="fallback-msg">The CSV is selected below; press Ctrl+C or Cmd+C and paste it into a file named pod-abc-data-dictionary.csv.</p>
     <textarea id="fallback-text" readonly aria-label="CSV text"></textarea>
   </div>
   <div id="out"></div>
@@ -645,22 +646,46 @@
     toastTimer = setTimeout(function () { el.style.opacity = "0"; }, 3200);
   }
 
-  // ── Download (runtime capability) ─────────────────────────────────────
-  var downloads = null;
+  // ── Download ──────────────────────────────────────────────────────────
+  // Inside the claude.ai viewer the page saves through the downloads
+  // capability (the viewer confirms the file). Anywhere else, or when the
+  // capability is refused, fall back to a plain browser download and then
+  // show the CSV text, so the button always leads somewhere.
   var dlBtn = $("dl");
+  var dlPromise = (window.claude && typeof window.claude.use === "function")
+    ? window.claude.use("downloads").then(function (ns) { return ns || null; }, function () { return null; })
+    : Promise.resolve(null);
+  dlPromise.then(function (ns) { if (!ns) $("dl-note").hidden = false; });
+
+  function showCSV(msg) {
+    var box = $("fallback"), ta = $("fallback-text");
+    $("fallback-msg").textContent = msg;
+    box.hidden = false; ta.value = buildCSV(); ta.focus(); ta.select();
+  }
+  function browserDownload(rows) {
+    try {
+      var blob = new Blob([buildCSV()], { type: "text/csv;charset=utf-8" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = csvName();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    } catch (e) { /* fall through to the text box */ }
+    showCSV("If no file appeared, this view blocks downloads. The CSV (" + rows + " rows) is selected below: press Ctrl+C or Cmd+C and paste it into a file named " + csvName() + ".");
+  }
   dlBtn.addEventListener("click", function () {
-    if (!downloads) { toast("Downloads aren't available in this view. Use Copy CSV."); return; }
     var rows = visibleRows().length;
     if (!rows) { toast("Nothing to download with the current filter."); return; }
     dlBtn.disabled = true;
-    downloads.save({ filename: csvName(), data: buildCSV() }).then(function (res) {
-      if (res && res.status === "saved") toast("Saved " + rows + " rows to " + csvName());
-    }).catch(function (err) {
-      var code = err && err.code;
-      if (code === "declined") toast("Download cancelled.");
-      else if (code === "rate_limited") toast("A download prompt is already open. Answer it, then try again.");
-      else if (code === "extension_not_enabled") toast("CSV downloads are switched off in this view.");
-      else { toast("Download isn't available here. Use Copy CSV."); dlBtn.hidden = true; }
+    dlPromise.then(function (downloads) {
+      if (!downloads) { browserDownload(rows); return; }
+      return downloads.save({ filename: csvName(), data: buildCSV() }).then(function (res) {
+        if (res && res.status === "saved") { toast("Saved " + rows + " rows to " + csvName()); $("fallback").hidden = true; }
+      }, function (err) {
+        var code = err && err.code;
+        if (code === "declined") toast("Download cancelled.");
+        else if (code === "rate_limited") toast("A download prompt is already open. Answer it, then try again.");
+        else browserDownload(rows);
+      });
     }).then(function () { dlBtn.disabled = false; });
   });
 
@@ -669,10 +694,7 @@
     var csv = buildCSV();
     var rows = visibleRows().length;
     var done = function () { toast("Copied " + rows + " rows as CSV."); $("fallback").hidden = true; };
-    var fail = function () {
-      var box = $("fallback"), ta = $("fallback-text");
-      box.hidden = false; ta.value = csv; ta.focus(); ta.select();
-    };
+    var fail = function () { showCSV("Copying was blocked in this view. The CSV is selected below; press Ctrl+C or Cmd+C."); };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(csv).then(done, fail);
     } else fail();
@@ -687,13 +709,4 @@
     render();
   });
   render();
-
-  if (window.claude && typeof window.claude.use === "function") {
-    window.claude.use("downloads").then(function (ns) {
-      downloads = ns;
-      if (!ns) dlBtn.hidden = true;   // no file saves in this view; Copy CSV stays
-    }, function () { dlBtn.hidden = true; });
-  } else {
-    dlBtn.hidden = true;
-  }
 </script>
